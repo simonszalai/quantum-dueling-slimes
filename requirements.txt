@@ -6,3 +6,5 @@ matplotlib
 scipy
 tensorflow
 slimevolleygym
+flake8
+black
