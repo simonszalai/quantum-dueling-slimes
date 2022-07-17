@@ -17,8 +17,8 @@ class HabitualNetwork(tf.keras.Model):
         self.model = tf.keras.Sequential(
             [
                 tf.keras.layers.InputLayer(input_shape=(cfg.state_dim,)),
-                tf.keras.layers.Dense(units=128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
-                tf.keras.layers.Dense(units=128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(units=16, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(units=16, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dense(cfg.action_dim),
             ]
         )  # No activation

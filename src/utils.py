@@ -22,6 +22,12 @@ def entropy_bernoulli(p):
     return -(1 - p) * stable_tf_log(1 - p) - p * stable_tf_log(p)
 
 
+@tf.function
+def entropy_gaussian(logvar):
+    log_2_pi_e = np.log(2.0 * np.pi * np.e)
+    return 0.5 * (log_2_pi_e + logvar)
+
+
 def log_bernoulli(x, p):
     return x * stable_tf_log(p) + (1 - x) * stable_tf_log(1 - p)
 

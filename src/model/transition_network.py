@@ -16,11 +16,11 @@ class TransitionNetwork(tf.keras.Model):
         self.model = tf.keras.Sequential(
             [
                 tf.keras.layers.InputLayer(input_shape=(cfg.action_dim + cfg.state_dim,)),
-                tf.keras.layers.Dense(units=512, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(units=32, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(units=512, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(units=32, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(units=512, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(units=32, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
                 tf.keras.layers.Dense(cfg.state_dim + cfg.state_dim),
             ]

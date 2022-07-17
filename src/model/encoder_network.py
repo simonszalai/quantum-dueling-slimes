@@ -20,28 +20,18 @@ class EncoderNetwork(tf.keras.Model):
         self.encoder_model = tf.keras.Sequential(
             [
                 tf.keras.layers.InputLayer(input_shape=(cfg.state_dim)),
-                tf.keras.layers.Dense(256, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(16, activation=tf.keras.activations.linear, kernel_initializer="identity"),
                 tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(256, activation=tf.nn.relu, kernel_initializer="he_uniform"),
-                tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(256, activation=tf.nn.relu, kernel_initializer="he_uniform"),
-                tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(cfg.state_dim + cfg.state_dim),
+                tf.keras.layers.Dense(cfg.state_dim + cfg.state_dim, activation=tf.keras.activations.linear, kernel_initializer="identity"),
             ]
         )  # No activation
 
         self.decoder_model = tf.keras.Sequential(
             [
                 tf.keras.layers.InputLayer(input_shape=(cfg.state_dim,)),
-                tf.keras.layers.Dense(256, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(16, activation=tf.keras.activations.linear, kernel_initializer="identity"),
                 tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(256, activation=tf.nn.relu, kernel_initializer="he_uniform"),
-                tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(256, activation=tf.nn.relu, kernel_initializer="he_uniform"),
-                tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(
-                    cfg.state_dim, activation="sigmoid", kernel_initializer="he_uniform"
-                ),  # sigmoid activation ensures that outputs are smaller than 1, otherwise it would result in NaN after feeding it to entropy_bernoulli()
+                tf.keras.layers.Dense(cfg.state_dim, activation=tf.keras.activations.linear, kernel_initializer="identity"),
             ]
         )
 

@@ -75,11 +75,14 @@ class ActiveInferenceModel:
             # Vx_ball = tf.gather(obs, 6)
             # Vy_ball = tf.gather(obs, 7)
 
-            reward = x_ball + Vx_ball
-            if x_ball > 0:
-                reward += -1 * (y_ball + Vy_ball)
-            else:
-                reward += y_ball + Vy_ball
+            # Use sigmoid: smooth step function
+            reward = x_ball
+
+            # reward = x_ball + Vx_ball
+            # if x_ball > 0:
+            #     reward += -1 * (y_ball + Vy_ball)
+            # else:
+            #     reward += y_ball + Vy_ball
             results.append(reward)
 
         return results
@@ -148,12 +151,12 @@ class ActiveInferenceModel:
             # Term 2.1: Sampling different thetas, i.e. sampling different ps_mean/logvar with dropout!
             pred_state_1_temp1, _, _ = self.transition_net.transition_with_sample(state_0, action_0)
             pred_obs_1_temp1 = self.encoder_net.decode(pred_state_1_temp1)
-            term2_1_new = tf.reduce_sum(utils.entropy_bernoulli(pred_obs_1_temp1), axis=[1])
+            term2_1_new = tf.reduce_sum(utils.entropy_gaussian(pred_obs_1_temp1), axis=[1])
             term2_1 += term2_1_new
 
             # Term 2.2: Sampling different s with the same theta, i.e. just the reparametrization trick!
             pred_obs_temp2 = self.encoder_net.decode(pred_state_1)
-            term2_2_new = tf.reduce_sum(utils.entropy_bernoulli(pred_obs_temp2), axis=[1])
+            term2_2_new = tf.reduce_sum(utils.entropy_gaussian(pred_obs_temp2), axis=[1])
             term2_2 += term2_2_new
 
         term0 /= float(average_G_over_N_samples)
@@ -185,11 +188,11 @@ class ActiveInferenceModel:
 
         # Term 2.1: Sampling different thetas, i.e. sampling different ps_mean/logvar with dropout!
         po1_temp1 = self.encoder_net.decode(self.transition_net.transition_with_sample(pi0, s0)[1])
-        term2_1 = tf.reduce_sum(utils.entropy_bernoulli(po1_temp1), axis=[1, 2, 3])
+        term2_1 = tf.reduce_sum(utils.entropy_gaussian(po1_temp1), axis=[1, 2, 3])
 
         # Term 2.2: Sampling different s with the same theta, i.e. just the reparametrization trick!
         po1_temp2 = self.encoder_net.decode(self.encoder_net.reparameterize(ps1_mean, ps1_logvar))
-        term2_2 = tf.reduce_sum(utils.entropy_bernoulli(po1_temp2), axis=[1, 2, 3])
+        term2_2 = tf.reduce_sum(utils.entropy_gaussian(po1_temp2), axis=[1, 2, 3])
 
         # E [ log [ H(o|s,th,pi) ] - E [ H(o|s,pi) ]
         term2 = term2_1 - term2_2
@@ -251,11 +254,11 @@ class ActiveInferenceModel:
 
         #  Term 2.1: Sampling different thetas, i.e. sampling different ps_mean/logvar with dropout!
         po1_temp1 = self.encoder_net.decode(self.transition_net.transition_with_sample(pi0_traj, s0_traj)[0])
-        term2_1 = tf.reduce_sum(utils.entropy_bernoulli(po1_temp1), axis=[1, 2, 3])
+        term2_1 = tf.reduce_sum(utils.entropy_gaussian(po1_temp1), axis=[1, 2, 3])
 
         # Term 2.2: Sampling different s with the same theta, i.e. just the reparametrization trick!
         po1_temp2 = self.encoder_net.decode(self.transition_net.reparameterize(ps1_mean_traj, ps1_logvar_traj))
-        term2_2 = tf.reduce_sum(utils.entropy_bernoulli(po1_temp2), axis=[1, 2, 3])
+        term2_2 = tf.reduce_sum(utils.entropy_gaussian(po1_temp2), axis=[1, 2, 3])
 
         # E [ log [ H(o|s,th,pi) ] - E [ H(o|s,pi) ]
         term2 = term2_1 - term2_2
