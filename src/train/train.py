@@ -4,6 +4,7 @@ import time
 import argparse
 import slimevolleygym
 import numpy as np
+from time import sleep
 import tensorflow as tf
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -19,11 +20,7 @@ from src.train.config import (
     gamma_max,
     gamma_delay,
     learning_rates,
-    omega_params,
-    calc_G_steps_ahead,
-    average_G_over_N_samples,
 )
-from src.utils import compute_omega, softmax_multi_with_log, action_to_multi_hot
 from src.train.metrics import TENSORBOARD
 from src.model.active_inference import ActiveInferenceModel
 
@@ -95,6 +92,7 @@ policy = slimevolleygym.BaselinePolicy()  # defaults to use RNN Baseline for pla
 env = gym.make("SlimeVolley-v0")
 env.seed(np.random.randint(0, 10000))
 
+render_mode = False
 
 epoch_times = []
 start_time = time.time()
@@ -107,11 +105,15 @@ for epoch in range(start_epoch, epochs + 1):
     if epoch > gamma_delay and model.encoder_net.gamma < gamma_max:
         model.encoder_net.gamma.assign(model.encoder_net.gamma + gamma_rate)
 
-    obs_0 = env.reset()
-    obs_0 = np.expand_dims(obs_0, axis=0)  # Keras layers requires a dimension for batches even if it equals to 1
+    if render_mode:
+        env.render()
+
+    obs_agent = env.reset()
+    obs_opponent = obs_agent
+    obs_agent = np.expand_dims(obs_agent, axis=0)  # Keras layers requires a dimension for batches even if it equals to 1
 
     total_reward = 0
-    opponent_action = np.array([0.0, 0.0, 0.0])
+    action_opponent = np.array([0.0, 0.0, 0.0])
     done = False
 
     i = 0
@@ -121,62 +123,24 @@ for epoch in range(start_epoch, epochs + 1):
         print(f"Round {i} of epoch {epoch}\r", end="")
         i += 1
 
-        # TRSTEP 3 Run planner and compute prior policy P (at)
-        # TRSTEP 3.a Define shape of action space
-        dummy_action_onehot = tf.eye(action_dim, dtype=np_precision)  # Shape: (action_counts, action_counts), e.g. (3, 3)
+        action_agent, train_info = model.predict_agent_action(obs_agent)
+        action_index, P_action, agent_action_onehot = train_info
 
-        # TRSTEP 3.b Compute Expected Free Energy
-        # samples: average G over N samples
-        o0_repeated = obs_0.repeat(action_dim, 0)
+        # Get action of the opponent
+        action_opponent = policy.predict(obs_opponent)
 
-        sum_G = model.calculate_G_repeated(
-            o0_repeated, dummy_action_onehot, steps=calc_G_steps_ahead, average_G_over_N_samples=average_G_over_N_samples, calc_mean=True
-        )  # Shape (batch * action_counts,), e.g. (3,)
-        # TRSTEP 3.c Compute prior policy (probability distribution over actions)
-        P_action, log_P_action = softmax_multi_with_log(-sum_G.numpy(), action_dim)  # Shape: (batch, action_dim), e.g. (1, 3)
-
-        # TRSTEP 9 Apply action a ̃ ∼ P (a ) to the environment.
-        # TRSTEP 9.a Sample prior policy (action probability distributions)
-        action_index = np.random.choice(action_dim, p=P_action.squeeze(axis=0))
-
-        # Convert action index to one-hot (for network training)
-        agent_action_onehot = np.zeros((1, action_dim), dtype=np_precision)
-        agent_action_onehot[0, action_index] = 1.0
-
-        # Convert action choices to multi-hot (for environment)
-        agent_action = action_to_multi_hot(action_index, dtype=model.tf_precision)
+        model.train(obs_agent, train_info, step=epoch * epochs + i)
 
         # TRSTEP 9.c Apply actions to the environment.
-        opponent_action = policy.predict(obs_0.squeeze(axis=0))
         # Action format: multi-hot [forward, backward, jump]
-        obs_1, reward, done, _ = env.step(agent_action, opponent_action)
-        obs_1 = np.expand_dims(obs_1, axis=0)  # Keras layers requires a dimension for batches even if it equals to 1
+        obs_agent, reward, done, info = env.step(action_agent, action_opponent)
 
-        # -- TRAIN HABITUAL NETWORK ---------------------------------------------------
-        # 4. Compute Qφs (st) using o ̃t.
-        state_0, _, _ = model.encoder_net.encode_with_sample(obs_0)
+        obs_opponent = info["otherObs"]
+        obs_agent = np.expand_dims(obs_agent, axis=0)  # Keras layers requires a dimension for batches even if it equals to 1
 
-        loss_habitual = model.habitual_net.train(state_0, P_action)
-        TENSORBOARD.loss_habitual(loss_habitual)
-
-        # -- TRAIN TRANSITION NETWORK ------------------------------------------------
-        # 11. Compute Qφs (st+1 ) using o ̃t+1 .
-        state_1_mean, state_1_logvar = model.encoder_net.encode(obs_1)
-        loss_transition, pred_state_1_mean, pred_state_1_logvar = model.transition_net.train(
-            state_0, agent_action_onehot, state_1_mean=state_1_mean, state_1_logvar=state_1_logvar, omega=model.omega
-        )
-        TENSORBOARD.loss_transition(loss_transition)
-
-        current_omega = compute_omega(loss_habitual, omega_params=omega_params).reshape(-1, 1)
-        model.omega.assign(tf.reduce_mean(current_omega))
-        TENSORBOARD.omega(model.omega)
-
-        # -- TRAIN ENCODER NETWORK --------------------------------------------------
-        loss_encoder = model.encoder_net.train(obs_1=obs_1, pred_state_1_mean=pred_state_1_mean, pred_state_1_logvar=pred_state_1_logvar, omega=current_omega)
-        TENSORBOARD.loss_encoder(loss_encoder)
-        TENSORBOARD.gamma(model.encoder_net.gamma)
-
-        TENSORBOARD.write_all_metrics(step=epoch * epochs + i)
+        if render_mode:
+            env.render()
+            sleep(0.01)
 
     # model.create_checkpoint()
     now = time.time()
@@ -190,7 +154,7 @@ for epoch in range(start_epoch, epochs + 1):
     elapsed_seconds = now - start_time
     elapsed_time = timedelta(seconds=round(elapsed_seconds))
 
-    if i % 5 == 0:
+    if epoch != 0 and epoch % 25 == 0:
         model.save(training_run_path / "saved_models" / f"epoch_{epoch}")
 
     print(f"Epoch {epoch} done in {'%.2f' % epoch_time} s ({i} rounds) | Time left: ~ {str(time_left)} | Elapsed time: {str(elapsed_time)}")

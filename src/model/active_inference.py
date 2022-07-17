@@ -1,10 +1,12 @@
 import numpy as np
 import tensorflow as tf
 
+from src.train.config import action_dim, np_precision, calc_G_steps_ahead, average_G_over_N_samples, omega_params
 from src.model.habitual_network import HabitualNetwork
 from src.model.transition_network import TransitionNetwork
 from src.model.encoder_network import EncoderNetwork
-from src.utils import entropy_bernoulli, entropy_normal_from_logvar
+from src.utils import entropy_bernoulli, entropy_normal_from_logvar, softmax_multi_with_log, action_to_multi_hot, compute_omega
+from src.train.metrics import TENSORBOARD
 
 
 class ActiveInferenceModel:
@@ -256,6 +258,65 @@ class ActiveInferenceModel:
         term2 = term2_1 - term2_2
 
         return -term0 + term1 + term2
+
+    def predict_agent_action(self, obs):
+        # TRSTEP 3 Run planner and compute prior policy P (at)
+        # TRSTEP 3.a Define shape of action space
+        dummy_action_onehot = tf.eye(action_dim, dtype=np_precision)  # Shape: (action_counts, action_counts), e.g. (3, 3)
+
+        # TRSTEP 3.b Compute Expected Free Energy
+        # samples: average G over N samples
+        o0_repeated = obs.repeat(action_dim, 0)
+
+        sum_G = self.calculate_G_repeated(
+            o0_repeated, dummy_action_onehot, steps=calc_G_steps_ahead, average_G_over_N_samples=average_G_over_N_samples, calc_mean=True
+        )  # Shape (batch * action_counts,), e.g. (3,)
+        # TRSTEP 3.c Compute prior policy (probability distribution over actions)
+        P_action, _ = softmax_multi_with_log(-sum_G.numpy(), action_dim)  # Shape: (batch, action_dim), e.g. (1, 3)
+
+        # TRSTEP 9 Apply action a ̃ ∼ P (a ) to the environment.
+        # TRSTEP 9.a Sample prior policy (action probability distributions)
+        action_index = np.random.choice(action_dim, p=P_action.squeeze(axis=0))
+
+        # Convert action choices to multi-hot (for environment)
+        action_agent = action_to_multi_hot(action_index, dtype=self.tf_precision)
+
+        # Convert action index to one-hot (for network training)
+        agent_action_onehot = np.zeros((1, action_dim), dtype=np_precision)
+        agent_action_onehot[0, action_index] = 1.0
+
+        return action_agent, [action_index, P_action, agent_action_onehot]
+
+    def train(self, obs_agent, train_info, step):
+        _, P_action, agent_action_onehot = train_info
+
+        # -- TRAIN HABITUAL NETWORK ---------------------------------------------------
+        # 4. Compute Qφs (st) using o ̃t.
+        state_0, _, _ = self.encoder_net.encode_with_sample(obs_agent)
+
+        loss_habitual = self.habitual_net.train(state_0, P_action)
+        TENSORBOARD.loss_habitual(loss_habitual)
+
+        # -- TRAIN TRANSITION NETWORK ------------------------------------------------
+        # 11. Compute Qφs (st+1 ) using o ̃t+1 .
+        state_1_mean, state_1_logvar = self.encoder_net.encode(obs_agent)
+        loss_transition, pred_state_1_mean, pred_state_1_logvar = self.transition_net.train(
+            state_0, agent_action_onehot, state_1_mean=state_1_mean, state_1_logvar=state_1_logvar, omega=self.omega
+        )
+        TENSORBOARD.loss_transition(loss_transition)
+
+        current_omega = compute_omega(loss_habitual, omega_params=omega_params).reshape(-1, 1)
+        self.omega.assign(tf.reduce_mean(current_omega))
+        TENSORBOARD.omega(self.omega)
+
+        # -- TRAIN ENCODER NETWORK --------------------------------------------------
+        loss_encoder = self.encoder_net.train(
+            obs_1=obs_agent, pred_state_1_mean=pred_state_1_mean, pred_state_1_logvar=pred_state_1_logvar, omega=current_omega
+        )
+        TENSORBOARD.loss_encoder(loss_encoder)
+        TENSORBOARD.gamma(self.encoder_net.gamma)
+
+        TENSORBOARD.write_all_metrics(step=step)
 
     # TODO: refactor
     def mcts_step_simulate(self, starting_s, depth, use_means=False):

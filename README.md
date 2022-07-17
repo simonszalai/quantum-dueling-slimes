@@ -16,3 +16,9 @@ pip install -e .
 tensorboard --logdir training_files/logs
 python src/train/train.py
 ```
+
+## Inference
+
+```
+python src/run/run.py -n training_files/20220715-203315/saved_models/epoch_1000
+```
