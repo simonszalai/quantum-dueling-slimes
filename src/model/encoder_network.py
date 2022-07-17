@@ -1,5 +1,6 @@
 import tensorflow as tf
 
+import src.train.config as cfg
 from src.utils import D_KL_from_logvar_and_precision, stable_tf_log
 
 
@@ -8,36 +9,30 @@ class EncoderNetwork(tf.keras.Model):
     Network to encode and decode state from/to observations
     """
 
-    def __init__(self, state_dim, beta_state, beta_obs, gamma, learning_rate=None):
+    def __init__(self):
         super(EncoderNetwork, self).__init__()
 
-        self.state_dim = state_dim
-        self.resolution = 64
-        self.colour_channels = 1
+        self.beta_state = tf.Variable(cfg.beta_state, trainable=False, name="beta_state")
+        self.beta_obs = tf.Variable(cfg.beta_obs, trainable=False, name="beta_obs")
+        self.gamma = tf.Variable(cfg.gamma, trainable=False, name="gamma")
 
-        self.beta_state = tf.Variable(beta_state, trainable=False, name="beta_state")
-        self.beta_obs = tf.Variable(beta_obs, trainable=False, name="beta_obs")
-        self.gamma = tf.Variable(gamma, trainable=False, name="gamma")
-
-        if learning_rate:
-            self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate=cfg.learning_rates.get("encoder"))
         self.encoder_model = tf.keras.Sequential(
             [
-                tf.keras.layers.InputLayer(input_shape=(state_dim)),
+                tf.keras.layers.InputLayer(input_shape=(cfg.state_dim)),
                 tf.keras.layers.Dense(256, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
                 tf.keras.layers.Dense(256, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
                 tf.keras.layers.Dense(256, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(state_dim + state_dim),
+                tf.keras.layers.Dense(cfg.state_dim + cfg.state_dim),
             ]
         )  # No activation
 
         self.decoder_model = tf.keras.Sequential(
             [
-                tf.keras.layers.InputLayer(input_shape=(state_dim,)),
+                tf.keras.layers.InputLayer(input_shape=(cfg.state_dim,)),
                 tf.keras.layers.Dense(256, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
                 tf.keras.layers.Dense(256, activation=tf.nn.relu, kernel_initializer="he_uniform"),
@@ -45,7 +40,7 @@ class EncoderNetwork(tf.keras.Model):
                 tf.keras.layers.Dense(256, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
                 tf.keras.layers.Dense(
-                    state_dim, activation="sigmoid", kernel_initializer="he_uniform"
+                    cfg.state_dim, activation="sigmoid", kernel_initializer="he_uniform"
                 ),  # sigmoid activation ensures that outputs are smaller than 1, otherwise it would result in NaN after feeding it to entropy_bernoulli()
             ]
         )

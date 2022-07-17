@@ -1,5 +1,6 @@
 import tensorflow as tf
 
+import src.train.config as cfg
 from src.utils import D_KL_from_logvar_and_precision
 
 
@@ -8,25 +9,20 @@ class TransitionNetwork(tf.keras.Model):
     Transition function (B)
     """
 
-    def __init__(self, state_dim, action_dim, learning_rate=None):
+    def __init__(self):
         super(TransitionNetwork, self).__init__()
 
-        self.state_dim = state_dim
-        self.action_dim = action_dim
-
-        if learning_rate:
-            self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate=cfg.learning_rates.get("transition"))
         self.model = tf.keras.Sequential(
             [
-                tf.keras.layers.InputLayer(input_shape=(action_dim + state_dim,)),
+                tf.keras.layers.InputLayer(input_shape=(cfg.action_dim + cfg.state_dim,)),
                 tf.keras.layers.Dense(units=512, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
                 tf.keras.layers.Dense(units=512, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
                 tf.keras.layers.Dense(units=512, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(state_dim + state_dim),
+                tf.keras.layers.Dense(cfg.state_dim + cfg.state_dim),
             ]
         )  # No activation
 

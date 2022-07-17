@@ -1,22 +1,49 @@
-import time
+import numpy as np
+from time import time
+from datetime import timedelta
 
 
-def print_progress(epoch, epochs, step, steps, start_time):
-    total_steps = epochs * steps
-    steps_done = epoch * steps + step
-    percent = round(100 * steps_done / total_steps, 2)
-    step_time = time.time()
-    time_per_step = (step_time - start_time) / (steps_done + 1)
-    time_remaining_s = (total_steps - steps_done) * time_per_step
-    time_remaining_str = time.strftime("%H:%M:%S", time.gmtime(time_remaining_s))
+class ProgressLogger:
+    def __init__(self, epochs):
+        self.epochs = epochs
+        self.start_time = time()
+        self.epoch_start_time = None
+        self.epoch_times = []
 
-    metrics_to_print = [
-        f"Epoch: {str(epoch).rjust(4)};",
-        f"Round: {str(step).rjust(4)};",
-        f"Step: {str(steps_done).rjust(6)};",
-        f"Percent: {str(percent).rjust(4)}%;",
-        f"Time per step: {str(round(1000 * time_per_step)).rjust(4)} ms;",
-        f"Time remaining: {time_remaining_str.rjust(9)};",
-    ]
+    def start_epoch(self):
+        self.epoch_start_time = time()
 
-    print("\r", " ".join(metrics_to_print), end="")
+    def print(self, epoch, round_):
+        now = time()
+        epoch_time = round(now - self.epoch_start_time, 2)
+        self.epoch_times.append(epoch_time)
+        avg_epoch_time = np.array(self.epoch_times).mean()
+        epochs_left = self.epochs - epoch
+        approx_time_left = avg_epoch_time * epochs_left
+        time_left = timedelta(seconds=round(approx_time_left))
+
+        elapsed_seconds = now - self.start_time
+        elapsed_time = timedelta(seconds=round(elapsed_seconds))
+
+        print(f"Epoch {epoch} done in {'%.2f' % epoch_time} s ({round_} rounds) | Time left: ~ {str(time_left)} | Elapsed time: {str(elapsed_time)}")
+
+
+def init_epoch(env, logger):
+    # Reset environment and get initial observation for the agent
+    obs_agent = env.reset()
+
+    # Initial observation for agent and opponent is the same
+    obs_opponent = obs_agent
+
+    # Keras layers require a dimension for batches even if it equals to 1
+    obs_agent = np.expand_dims(obs_agent, axis=0)
+
+    # Initialize some variables
+    round = 0
+    done = False
+    total_reward = 0
+
+    # Start timer for epoch
+    logger.start_epoch()
+
+    return obs_agent, obs_opponent, round, done, total_reward

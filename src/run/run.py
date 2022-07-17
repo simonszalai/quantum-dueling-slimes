@@ -8,14 +8,6 @@ import numpy as np
 import tensorflow as tf
 from pathlib import Path
 
-from src.train.config import (
-    state_dim,
-    action_dim,
-    np_precision,
-    beta_state,
-    beta_obs,
-    gamma,
-)
 from src.run.mcts import MCTS
 from src.model.active_inference import ActiveInferenceModel
 
@@ -76,14 +68,7 @@ env.seed(np.random.randint(0, 10000))
 
 tprint("Environment loaded")
 
-model = ActiveInferenceModel(
-    state_dim=state_dim,
-    action_dim=action_dim,
-    gamma=gamma,
-    beta_state=beta_state,
-    beta_obs=beta_obs,
-    np_precision=np_precision,
-)
+model = ActiveInferenceModel()
 tprint("Active Inference model instantiated")
 model.load(Path(args.network))
 tprint("Active Inference model checkpoint loaded")

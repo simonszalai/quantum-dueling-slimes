@@ -1,5 +1,6 @@
 import tensorflow as tf
 
+import src.train.config as cfg
 from src.utils import stable_tf_log
 
 
@@ -9,20 +10,16 @@ class HabitualNetwork(tf.keras.Model):
     taken given a state.
     """
 
-    def __init__(self, state_dim, action_dim, learning_rate=None):
+    def __init__(self):
         super(HabitualNetwork, self).__init__()
 
-        self.state_dim = state_dim
-
-        if learning_rate:
-            self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate=cfg.learning_rates.get("habitual"))
         self.model = tf.keras.Sequential(
             [
-                tf.keras.layers.InputLayer(input_shape=(state_dim,)),
+                tf.keras.layers.InputLayer(input_shape=(cfg.state_dim,)),
                 tf.keras.layers.Dense(units=128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dense(units=128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
-                tf.keras.layers.Dense(action_dim),
+                tf.keras.layers.Dense(cfg.action_dim),
             ]
         )  # No activation
 

@@ -1,28 +1,28 @@
 import numpy as np
 import tensorflow as tf
 
-from src.train.config import action_dim, np_precision, calc_G_steps_ahead, average_G_over_N_samples, omega_params
+import src.utils as utils
+import src.train.config as cfg
 from src.model.habitual_network import HabitualNetwork
 from src.model.transition_network import TransitionNetwork
 from src.model.encoder_network import EncoderNetwork
-from src.utils import entropy_bernoulli, entropy_normal_from_logvar, softmax_multi_with_log, action_to_multi_hot, compute_omega
 from src.train.metrics import TENSORBOARD
 
 
 class ActiveInferenceModel:
-    def __init__(self, state_dim, action_dim, gamma, beta_state, beta_obs, learning_rates={}, training_run_path=None, np_precision=np.float32):
-        self.np_precision = np_precision
-        self.state_dim = state_dim
-        self.action_dim = action_dim
+    def __init__(self, training_run_path=None):
+        self.np_precision = cfg.np_precision
+        self.state_dim = cfg.state_dim
+        self.action_dim = cfg.action_dim
 
         self.omega = tf.Variable(1.0, trainable=False, name="omega")
 
-        self.tf_precision = f"float{np.finfo(np_precision).bits}"
+        self.tf_precision = f"float{np.finfo(cfg.np_precision).bits}"
         tf.keras.backend.set_floatx(self.tf_precision)
 
-        self.habitual_net = HabitualNetwork(state_dim, action_dim, learning_rates.get("habitual"))
-        self.transition_net = TransitionNetwork(state_dim, action_dim, learning_rates.get("transition"))
-        self.encoder_net = EncoderNetwork(state_dim, beta_state, beta_obs, gamma, learning_rates.get("encoder"))
+        self.habitual_net = HabitualNetwork()
+        self.transition_net = TransitionNetwork()
+        self.encoder_net = EncoderNetwork()
 
         self.checkpoint = tf.train.Checkpoint(
             habitual_net=self.habitual_net,
@@ -68,6 +68,7 @@ class ActiveInferenceModel:
 
         results = []
         for obs in obs_for_actions:
+            # TODO: This should not use .numpy() so disabling eager execution can speed up training
             x_agent, y_agent, Vx_agent, Vy_agent, x_ball, y_ball, Vx_ball, Vy_ball, X_opponent, Y_opponent, Vx_opponent, Vy_opponent = obs.numpy()
             # x_ball = tf.gather(obs, 4)
             # y_ball = tf.gather(obs, 5)
@@ -139,18 +140,20 @@ class ActiveInferenceModel:
             term0 += log_pred_obs_1
 
             # E [ log Q(s|pi) - log Q(s|o,pi) ]
-            term1_new = -tf.reduce_sum(entropy_normal_from_logvar(pred_state_1_logvar) + entropy_normal_from_logvar(encoded_pred_state_1_logvar), axis=1)
+            term1_new = -tf.reduce_sum(
+                utils.entropy_normal_from_logvar(pred_state_1_logvar) + utils.entropy_normal_from_logvar(encoded_pred_state_1_logvar), axis=1
+            )
             term1 += term1_new
 
             # Term 2.1: Sampling different thetas, i.e. sampling different ps_mean/logvar with dropout!
             pred_state_1_temp1, _, _ = self.transition_net.transition_with_sample(state_0, action_0)
             pred_obs_1_temp1 = self.encoder_net.decode(pred_state_1_temp1)
-            term2_1_new = tf.reduce_sum(entropy_bernoulli(pred_obs_1_temp1), axis=[1])
+            term2_1_new = tf.reduce_sum(utils.entropy_bernoulli(pred_obs_1_temp1), axis=[1])
             term2_1 += term2_1_new
 
             # Term 2.2: Sampling different s with the same theta, i.e. just the reparametrization trick!
             pred_obs_temp2 = self.encoder_net.decode(pred_state_1)
-            term2_2_new = tf.reduce_sum(entropy_bernoulli(pred_obs_temp2), axis=[1])
+            term2_2_new = tf.reduce_sum(utils.entropy_bernoulli(pred_obs_temp2), axis=[1])
             term2_2 += term2_2_new
 
         term0 /= float(average_G_over_N_samples)
@@ -178,15 +181,15 @@ class ActiveInferenceModel:
         term0 = logpo1
 
         # E [ log Q(s|pi) - log Q(s|o,pi) ]
-        term1 = -tf.reduce_sum(entropy_normal_from_logvar(ps1_logvar) + entropy_normal_from_logvar(qs1_logvar), axis=1)
+        term1 = -tf.reduce_sum(utils.entropy_normal_from_logvar(ps1_logvar) + utils.entropy_normal_from_logvar(qs1_logvar), axis=1)
 
         # Term 2.1: Sampling different thetas, i.e. sampling different ps_mean/logvar with dropout!
         po1_temp1 = self.encoder_net.decode(self.transition_net.transition_with_sample(pi0, s0)[1])
-        term2_1 = tf.reduce_sum(entropy_bernoulli(po1_temp1), axis=[1, 2, 3])
+        term2_1 = tf.reduce_sum(utils.entropy_bernoulli(po1_temp1), axis=[1, 2, 3])
 
         # Term 2.2: Sampling different s with the same theta, i.e. just the reparametrization trick!
         po1_temp2 = self.encoder_net.decode(self.encoder_net.reparameterize(ps1_mean, ps1_logvar))
-        term2_2 = tf.reduce_sum(entropy_bernoulli(po1_temp2), axis=[1, 2, 3])
+        term2_2 = tf.reduce_sum(utils.entropy_bernoulli(po1_temp2), axis=[1, 2, 3])
 
         # E [ log [ H(o|s,th,pi) ] - E [ H(o|s,pi) ]
         term2 = term2_1 - term2_2
@@ -244,15 +247,15 @@ class ActiveInferenceModel:
         term0 = self.check_reward(po1)
 
         # E [ log Q(s|pi) - log Q(s|o,pi) ]
-        term1 = -tf.reduce_sum(entropy_normal_from_logvar(ps1_logvar_traj) + entropy_normal_from_logvar(qs1_logvar), axis=1)
+        term1 = -tf.reduce_sum(utils.entropy_normal_from_logvar(ps1_logvar_traj) + utils.entropy_normal_from_logvar(qs1_logvar), axis=1)
 
         #  Term 2.1: Sampling different thetas, i.e. sampling different ps_mean/logvar with dropout!
         po1_temp1 = self.encoder_net.decode(self.transition_net.transition_with_sample(pi0_traj, s0_traj)[0])
-        term2_1 = tf.reduce_sum(entropy_bernoulli(po1_temp1), axis=[1, 2, 3])
+        term2_1 = tf.reduce_sum(utils.entropy_bernoulli(po1_temp1), axis=[1, 2, 3])
 
         # Term 2.2: Sampling different s with the same theta, i.e. just the reparametrization trick!
         po1_temp2 = self.encoder_net.decode(self.transition_net.reparameterize(ps1_mean_traj, ps1_logvar_traj))
-        term2_2 = tf.reduce_sum(entropy_bernoulli(po1_temp2), axis=[1, 2, 3])
+        term2_2 = tf.reduce_sum(utils.entropy_bernoulli(po1_temp2), axis=[1, 2, 3])
 
         # E [ log [ H(o|s,th,pi) ] - E [ H(o|s,pi) ]
         term2 = term2_1 - term2_2
@@ -262,27 +265,27 @@ class ActiveInferenceModel:
     def predict_agent_action(self, obs):
         # TRSTEP 3 Run planner and compute prior policy P (at)
         # TRSTEP 3.a Define shape of action space
-        dummy_action_onehot = tf.eye(action_dim, dtype=np_precision)  # Shape: (action_counts, action_counts), e.g. (3, 3)
+        dummy_action_onehot = tf.eye(cfg.action_dim, dtype=cfg.np_precision)  # Shape: (action_counts, action_counts), e.g. (3, 3)
 
         # TRSTEP 3.b Compute Expected Free Energy
         # samples: average G over N samples
-        o0_repeated = obs.repeat(action_dim, 0)
+        o0_repeated = obs.repeat(cfg.action_dim, 0)
 
         sum_G = self.calculate_G_repeated(
-            o0_repeated, dummy_action_onehot, steps=calc_G_steps_ahead, average_G_over_N_samples=average_G_over_N_samples, calc_mean=True
+            o0_repeated, dummy_action_onehot, steps=cfg.calc_G_steps_ahead, average_G_over_N_samples=cfg.average_G_over_N_samples, calc_mean=True
         )  # Shape (batch * action_counts,), e.g. (3,)
         # TRSTEP 3.c Compute prior policy (probability distribution over actions)
-        P_action, _ = softmax_multi_with_log(-sum_G.numpy(), action_dim)  # Shape: (batch, action_dim), e.g. (1, 3)
+        P_action, _ = utils.softmax_multi_with_log(-sum_G.numpy(), cfg.action_dim)  # Shape: (batch, action_dim), e.g. (1, 3)
 
         # TRSTEP 9 Apply action a ̃ ∼ P (a ) to the environment.
         # TRSTEP 9.a Sample prior policy (action probability distributions)
-        action_index = np.random.choice(action_dim, p=P_action.squeeze(axis=0))
+        action_index = np.random.choice(cfg.action_dim, p=P_action.squeeze(axis=0))
 
         # Convert action choices to multi-hot (for environment)
-        action_agent = action_to_multi_hot(action_index, dtype=self.tf_precision)
+        action_agent = utils.action_to_multi_hot(action_index, dtype=self.tf_precision)
 
         # Convert action index to one-hot (for network training)
-        agent_action_onehot = np.zeros((1, action_dim), dtype=np_precision)
+        agent_action_onehot = np.zeros((1, cfg.action_dim), dtype=cfg.np_precision)
         agent_action_onehot[0, action_index] = 1.0
 
         return action_agent, [action_index, P_action, agent_action_onehot]
@@ -305,7 +308,7 @@ class ActiveInferenceModel:
         )
         TENSORBOARD.loss_transition(loss_transition)
 
-        current_omega = compute_omega(loss_habitual, omega_params=omega_params).reshape(-1, 1)
+        current_omega = utils.compute_omega(loss_habitual, omega_params=cfg.omega_params).reshape(-1, 1)
         self.omega.assign(tf.reduce_mean(current_omega))
         TENSORBOARD.omega(self.omega)
 
