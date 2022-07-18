@@ -1,4 +1,6 @@
 import os
+
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # Only log tf  errors (has to be before tf import)
 import gym
 import argparse
 import slimevolleygym
@@ -8,6 +10,7 @@ import tensorflow as tf
 from pathlib import Path
 from datetime import datetime
 
+import src.train.config as cfg
 from src.train.config import gamma_rate, gamma_max, gamma_delay
 from src.train.metrics import TENSORBOARD
 from src.model.active_inference import ActiveInferenceModel
@@ -16,11 +19,10 @@ from src.train.train_utils import ProgressLogger, init_epoch
 
 # ========= DEBUG SECTION =========
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 # Enable eager execution in @tf.functions
 # Slows down training a lot (~10-20x), but allows retrieving (and printing) actual tensor value
 # ALTERNATIVE: use tf.print instead, which doesn't require eager execution to print values
-tf.config.run_functions_eagerly(True)
+tf.config.run_functions_eagerly(False)
 np.set_printoptions(threshold=1000)
 
 # Enable TensorFlow Debugger V2.
@@ -88,6 +90,7 @@ for epoch in range(0, args.epochs + 1):
 
         # Apply actions to the environment. Action format: multi-hot [forward, backward, jump]
         obs_agent, reward, done, info = env.step(action_agent, action_opponent)
+        obs_agent = obs_agent.astype(cfg.np_precision)
 
         # Update/format observations for next round
         obs_opponent = info["otherObs"]

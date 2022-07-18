@@ -45,6 +45,8 @@ class ActiveInferenceModel:
     def check_reward(self, obs_for_actions):
         """
         Calculate reward for each action
+
+        obs_for_actions : observation for each possible action
         """
         # obs:
         # Smaller reward is preferred
@@ -66,26 +68,17 @@ class ActiveInferenceModel:
         # [ 0.2    0.482    0.       -0.022     -1.714  0.891   1.191   -0.933    1.725       0.237        0.           1.252]
         # [ 0.2    0.478    0.       -0.12      -1.675  0.856   1.191   -1.031    1.725       0.275        0.           1.154]
 
-        results = []
-        for obs in obs_for_actions:
-            # TODO: This should not use .numpy() so disabling eager execution can speed up training
-            x_agent, y_agent, Vx_agent, Vy_agent, x_ball, y_ball, Vx_ball, Vy_ball, X_opponent, Y_opponent, Vx_opponent, Vy_opponent = obs.numpy()
-            # x_ball = tf.gather(obs, 4)
-            # y_ball = tf.gather(obs, 5)
-            # Vx_ball = tf.gather(obs, 6)
-            # Vy_ball = tf.gather(obs, 7)
+        actions_count = len(obs_for_actions)
+        results = tf.TensorArray(cfg.tf_precision, size=actions_count)
+        for i in tf.range(actions_count):
+            obs = obs_for_actions[i]
+            x_ball = tf.gather(obs, 4)
 
-            # Use sigmoid: smooth step function
+            # TODO: Use sigmoid: smooth step function
             reward = x_ball
+            results = results.write(i, reward)
 
-            # reward = x_ball + Vx_ball
-            # if x_ball > 0:
-            #     reward += -1 * (y_ball + Vy_ball)
-            # else:
-            #     reward += y_ball + Vy_ball
-            results.append(reward)
-
-        return results
+        return results.stack()
 
     @tf.function
     def habitual_network(self, obs):
@@ -96,7 +89,7 @@ class ActiveInferenceModel:
     @tf.function
     def calculate_G_repeated(self, obs, action, steps=1, calc_mean=False, average_G_over_N_samples=10):
         """
-        We simultaneously calculate G for the four policies of repeating each
+        We simultaneously calculate G for the policies of repeating each
         one of the four actions continuously.
         """
         # Calculate current s_t
@@ -268,6 +261,7 @@ class ActiveInferenceModel:
     def predict_agent_action(self, obs):
         # TRSTEP 3 Run planner and compute prior policy P (at)
         # TRSTEP 3.a Define shape of action space
+        # This will result in one predicted observation for each possible action so the lowest G can be calculated then the right action selected
         dummy_action_onehot = tf.eye(cfg.action_dim, dtype=cfg.np_precision)  # Shape: (action_counts, action_counts), e.g. (3, 3)
 
         # TRSTEP 3.b Compute Expected Free Energy

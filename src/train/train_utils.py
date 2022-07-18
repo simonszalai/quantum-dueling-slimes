@@ -2,6 +2,8 @@ import numpy as np
 from time import time
 from datetime import timedelta
 
+import src.train.config as cfg
+
 
 class ProgressLogger:
     def __init__(self, epochs):
@@ -46,4 +48,4 @@ def init_epoch(env, logger):
     # Start timer for epoch
     logger.start_epoch()
 
-    return obs_agent, obs_opponent, round, done, total_reward
+    return obs_agent.astype(cfg.np_precision), obs_opponent, round, done, total_reward

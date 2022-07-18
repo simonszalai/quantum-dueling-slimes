@@ -3,6 +3,7 @@ This file stores config variables that are expected to change less frequently.
 """
 
 import numpy as np
+import tensorflow as tf
 
 # Dimensions for state and actions (depends on environment)
 state_dim = 12
@@ -45,6 +46,7 @@ apply_same_action_N_times = 1
 
 # Set data type to be used for matrices
 np_precision = np.float32
+tf_precision = tf.float32
 
 # Learning rates for the 3 neural networks
 learning_rates = {"habitual": 1e-04, "transition": 1e-04, "encoder": 0.001}
