@@ -100,10 +100,7 @@ for epoch in range(0, args.epochs + 1):
             env.render()
             sleep(0.01)
 
-        # done = True
-
     if epoch != 0 and epoch % 25 == 0:
         model.save(training_run_path / "saved_models" / f"epoch_{epoch}")
 
     logger.print(epoch, round_)
-    # break

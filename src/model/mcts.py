@@ -173,7 +173,7 @@ class MCTS:
         self.method = "ai"
         self.using_prior_for_exploration = False
 
-    def active_inference_mcts(self, model, frame, o_shape=(64, 64, 1)):
+    def active_inference_mcts(self, model, frame):
         states_explored = 0
         all_paths = []  # For debugging.
         all_paths_G = []  # For debugging.
@@ -181,7 +181,7 @@ class MCTS:
             return [0], 0, states_explored, all_paths, all_paths_G
 
         # Calculate current s_t
-        qs0_mean, qs0_logvar = model.encoder_net.encode(frame.reshape(1, o_shape[0], o_shape[1], o_shape[2]))
+        qs0_mean, qs0_logvar = model.encoder_net.encode(frame)
 
         # Important to be the mean here as we repeat it model.pi_dim times!
         root = Node(s=qs0_mean[0], model=model, C=self.C, pi_dim=model.action_dim, using_prior_for_exploration=self.using_prior_for_exploration)

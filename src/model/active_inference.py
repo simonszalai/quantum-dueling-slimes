@@ -6,6 +6,7 @@ import src.train.config as cfg
 from src.model.habitual_network import HabitualNetwork
 from src.model.transition_network import TransitionNetwork
 from src.model.encoder_network import EncoderNetwork
+from src.model.mcts import MCTS
 from src.train.metrics import TENSORBOARD
 
 
@@ -23,6 +24,7 @@ class ActiveInferenceModel:
         self.habitual_net = HabitualNetwork()
         self.transition_net = TransitionNetwork()
         self.encoder_net = EncoderNetwork()
+        self.mcts = MCTS()
 
         self.checkpoint = tf.train.Checkpoint(
             habitual_net=self.habitual_net,
@@ -86,35 +88,35 @@ class ActiveInferenceModel:
         Q_action = self.habitual_net.predict_action(pred_state_mean)
         return Q_action
 
-    @tf.function
-    def calculate_G_repeated(self, obs, action, steps=1, calc_mean=False, average_G_over_N_samples=10):
-        """
-        We simultaneously calculate G for the policies of repeating each
-        one of the four actions continuously.
-        """
-        # Calculate current s_t
-        encoded_state_0_mean, encoded_state_0_logvar = self.encoder_net.encode(obs)
-        encoded_state_0 = self.encoder_net.reparameterize(encoded_state_0_mean, encoded_state_0_logvar)
+    # @tf.function
+    # def calculate_G_repeated(self, obs, action, steps=1, calc_mean=False, average_G_over_N_samples=10):
+    #     """
+    #     We simultaneously calculate G for the policies of repeating each
+    #     one of the four actions continuously.
+    #     """
+    #     # Calculate current s_t
+    #     encoded_state_0_mean, encoded_state_0_logvar = self.encoder_net.encode(obs)
+    #     encoded_state_0 = self.encoder_net.reparameterize(encoded_state_0_mean, encoded_state_0_logvar)
 
-        sum_G = tf.zeros([obs.shape[0]], self.np_precision)
+    #     sum_G = tf.zeros([obs.shape[0]], self.np_precision)
 
-        # Predict s_t+1 for various policies
-        if calc_mean:
-            s0_temp = encoded_state_0_mean
-        else:
-            s0_temp = encoded_state_0
+    #     # Predict s_t+1 for various policies
+    #     if calc_mean:
+    #         s0_temp = encoded_state_0_mean
+    #     else:
+    #         s0_temp = encoded_state_0
 
-        for t in range(steps):
-            G, pred_state_1, pred_state_1_mean = self.calculate_G(s0_temp, action, average_G_over_N_samples=average_G_over_N_samples)
+    #     for t in range(steps):
+    #         G, pred_state_1, pred_state_1_mean = self.calculate_G(s0_temp, action, average_G_over_N_samples=average_G_over_N_samples)
 
-            sum_G += G
+    #         sum_G += G
 
-            if calc_mean:
-                s0_temp = pred_state_1_mean
-            else:
-                s0_temp = pred_state_1
+    #         if calc_mean:
+    #             s0_temp = pred_state_1_mean
+    #         else:
+    #             s0_temp = pred_state_1
 
-        return sum_G
+    #     return sum_G
 
     @tf.function
     def calculate_G(self, state_0, action_0, average_G_over_N_samples=10):
@@ -165,72 +167,72 @@ class ActiveInferenceModel:
         return G, pred_state_1, pred_state_1_mean
 
     # TODO: refactor
-    @tf.function
-    def calculate_G_mean(self, s0, pi0):
+    # @tf.function
+    # def calculate_G_mean(self, s0, pi0):
 
-        _, ps1_mean, ps1_logvar = self.transition_net.transition_with_sample(pi0, s0)
-        po1 = self.encoder_net.decode(ps1_mean)
-        _, qs1_mean, qs1_logvar = self.encoder_net.encode_with_sample(po1)
+    #     _, ps1_mean, ps1_logvar = self.transition_net.transition_with_sample(pi0, s0)
+    #     po1 = self.encoder_net.decode(ps1_mean)
+    #     _, qs1_mean, qs1_logvar = self.encoder_net.encode_with_sample(po1)
 
-        # E [ log P(o|pi) ]
-        logpo1 = self.check_reward(po1)
-        term0 = logpo1
+    #     # E [ log P(o|pi) ]
+    #     logpo1 = self.check_reward(po1)
+    #     term0 = logpo1
 
-        # E [ log Q(s|pi) - log Q(s|o,pi) ]
-        term1 = -tf.reduce_sum(utils.entropy_normal_from_logvar(ps1_logvar) + utils.entropy_normal_from_logvar(qs1_logvar), axis=1)
+    #     # E [ log Q(s|pi) - log Q(s|o,pi) ]
+    #     term1 = -tf.reduce_sum(utils.entropy_normal_from_logvar(ps1_logvar) + utils.entropy_normal_from_logvar(qs1_logvar), axis=1)
 
-        # Term 2.1: Sampling different thetas, i.e. sampling different ps_mean/logvar with dropout!
-        po1_temp1 = self.encoder_net.decode(self.transition_net.transition_with_sample(pi0, s0)[1])
-        term2_1 = tf.reduce_sum(utils.entropy_gaussian(po1_temp1), axis=[1, 2, 3])
+    #     # Term 2.1: Sampling different thetas, i.e. sampling different ps_mean/logvar with dropout!
+    #     po1_temp1 = self.encoder_net.decode(self.transition_net.transition_with_sample(pi0, s0)[1])
+    #     term2_1 = tf.reduce_sum(utils.entropy_gaussian(po1_temp1), axis=[1, 2, 3])
 
-        # Term 2.2: Sampling different s with the same theta, i.e. just the reparametrization trick!
-        po1_temp2 = self.encoder_net.decode(self.encoder_net.reparameterize(ps1_mean, ps1_logvar))
-        term2_2 = tf.reduce_sum(utils.entropy_gaussian(po1_temp2), axis=[1, 2, 3])
+    #     # Term 2.2: Sampling different s with the same theta, i.e. just the reparametrization trick!
+    #     po1_temp2 = self.encoder_net.decode(self.encoder_net.reparameterize(ps1_mean, ps1_logvar))
+    #     term2_2 = tf.reduce_sum(utils.entropy_gaussian(po1_temp2), axis=[1, 2, 3])
 
-        # E [ log [ H(o|s,th,pi) ] - E [ H(o|s,pi) ]
-        term2 = term2_1 - term2_2
+    #     # E [ log [ H(o|s,th,pi) ] - E [ H(o|s,pi) ]
+    #     term2 = term2_1 - term2_2
 
-        G = -term0 + term1 + term2
+    #     G = -term0 + term1 + term2
 
-        return G, [term0, term1, term2], ps1_mean, po1
+    #     return G, [term0, term1, term2], ps1_mean, po1
 
     # TODO: refactor
-    @tf.function
-    def calculate_G_4_repeated(self, o, steps=1, calc_mean=False, samples=10):
-        """
-        We simultaneously calculate G for the four policies of repeating each
-        one of the four actions continuously..
-        """
-        # Calculate current s_t
-        qs0_mean, qs0_logvar = self.encoder_net.encode(o)
-        qs0 = self.encoder_net.reparameterize(qs0_mean, qs0_logvar)
+    # @tf.function
+    # def calculate_G_4_repeated(self, o, steps=1, calc_mean=False, samples=10):
+    #     """
+    #     We simultaneously calculate G for the four policies of repeating each
+    #     one of the four actions continuously..
+    #     """
+    #     # Calculate current s_t
+    #     qs0_mean, qs0_logvar = self.encoder_net.encode(o)
+    #     qs0 = self.encoder_net.reparameterize(qs0_mean, qs0_logvar)
 
-        sum_terms = [tf.zeros([4], self.tf_precision), tf.zeros([4], self.tf_precision), tf.zeros([4], self.tf_precision)]
-        sum_G = tf.zeros([4], self.tf_precision)
+    #     sum_terms = [tf.zeros([4], self.tf_precision), tf.zeros([4], self.tf_precision), tf.zeros([4], self.tf_precision)]
+    #     sum_G = tf.zeros([4], self.tf_precision)
 
-        # Predict s_t+1 for various policies
-        if calc_mean:
-            s0_temp = qs0_mean
-        else:
-            s0_temp = qs0
+    #     # Predict s_t+1 for various policies
+    #     if calc_mean:
+    #         s0_temp = qs0_mean
+    #     else:
+    #         s0_temp = qs0
 
-        for t in range(steps):
-            if calc_mean:
-                G, terms, ps1_mean, po1 = self.calculate_G_mean(s0_temp, self.pi_one_hot)
-            else:
-                G, terms, s1, ps1_mean, po1 = self.calculate_G(s0_temp, self.pi_one_hot, samples=samples)
+    #     for t in range(steps):
+    #         if calc_mean:
+    #             G, terms, ps1_mean, po1 = self.calculate_G_mean(s0_temp, self.pi_one_hot)
+    #         else:
+    #             G, terms, s1, ps1_mean, po1 = self.calculate_G(s0_temp, self.pi_one_hot, samples=samples)
 
-            sum_terms[0] += terms[0]
-            sum_terms[1] += terms[1]
-            sum_terms[2] += terms[2]
-            sum_G += G
+    #         sum_terms[0] += terms[0]
+    #         sum_terms[1] += terms[1]
+    #         sum_terms[2] += terms[2]
+    #         sum_G += G
 
-            if calc_mean:
-                s0_temp = ps1_mean
-            else:
-                s0_temp = s1
+    #         if calc_mean:
+    #             s0_temp = ps1_mean
+    #         else:
+    #             s0_temp = s1
 
-        return sum_G, sum_terms, po1
+    #     return sum_G, sum_terms, po1
 
     @tf.function
     def calculate_G_given_trajectory(self, s0_traj, ps1_traj, ps1_mean_traj, ps1_logvar_traj, pi0_traj):
@@ -258,7 +260,7 @@ class ActiveInferenceModel:
 
         return -term0 + term1 + term2
 
-    def predict_agent_action(self, obs):
+    def predict_agent_action_train(self, obs):
         # TRSTEP 3 Run planner and compute prior policy P (at)
         # TRSTEP 3.a Define shape of action space
         # This will result in one predicted observation for each possible action so the lowest G can be calculated then the right action selected
@@ -286,6 +288,10 @@ class ActiveInferenceModel:
         agent_action_onehot[0, action_index] = 1.0
 
         return action_agent, [action_index, P_action, agent_action_onehot]
+
+    def predict_agent_action_inf(self, obs):
+        mcts_path, repeats_done, states_explored, all_paths, all_paths_G = self.mcts.active_inference_mcts(model=self, frame=obs)
+        return mcts_path[0]
 
     def train(self, obs_agent, train_info, step):
         _, P_action, agent_action_onehot = train_info

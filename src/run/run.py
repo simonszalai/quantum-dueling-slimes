@@ -8,7 +8,7 @@ import numpy as np
 import tensorflow as tf
 from pathlib import Path
 
-from src.run.mcts import MCTS
+from src.model.mcts import MCTS
 from src.model.active_inference import ActiveInferenceModel
 
 
@@ -86,7 +86,7 @@ done = False
 
 
 while not done:
-    action_agent, _ = model.predict_agent_action(obs_agent)
+    action_agent, _ = model.predict_agent_action_inf(obs_agent)
     action_opponent = policy.predict(obs_opponent)
 
     obs_agent, reward, done, info = env.step(action_agent, action_opponent)
