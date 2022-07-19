@@ -36,7 +36,7 @@ gamma_max = 0.8
 gamma_delay = 30
 
 # Defines how many steps in the future G should be calculated
-calc_G_steps_ahead = 100
+calc_G_steps_ahead = 1
 
 # Defines how many samples should be averaged to calculate G
 average_G_over_N_samples = 1

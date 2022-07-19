@@ -32,9 +32,6 @@ def tprint(text):
     print(text, get_elapsed_time())
 
 
-# Whether expected free energy should be calculated using the mean instead of sampling
-mean_instead_sampling = False
-
 # Define 3 variables that determine the number of iterations on each level (run, experiment, round)
 total_timesteps_count = 50000
 timesteps_in_experiment = 1000
@@ -86,7 +83,7 @@ done = False
 
 
 while not done:
-    action_agent, _ = model.predict_agent_action_inf(obs_agent)
+    action_agent = model.predict_agent_action_inf(obs_agent)
     action_opponent = policy.predict(obs_opponent)
 
     obs_agent, reward, done, info = env.step(action_agent, action_opponent)
