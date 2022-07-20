@@ -72,10 +72,11 @@ class ActiveInferenceModel:
         results = tf.TensorArray(cfg.tf_precision, size=actions_count)
         for i in tf.range(actions_count):
             obs = obs_for_actions[i]
-            x_ball = tf.gather(obs, 4)
+            x_agent = tf.gather(obs, 0)
+            # x_ball = tf.gather(obs, 4)
+            # y_ball = tf.gather(obs, 5)
 
-            # TODO: Use sigmoid: smooth step function
-            reward = x_ball
+            reward = x_agent
             results = results.write(i, reward)
 
         return results.stack()
