@@ -36,13 +36,13 @@ gamma_max = 0.8
 gamma_delay = 30
 
 # Defines how many steps in the future G should be calculated
-calc_G_steps_ahead = 1
+calc_G_steps_ahead = 5
 
 # Defines how many samples should be averaged to calculate G
 average_G_over_N_samples = 1
 
 # Defines how many times should be the same action applied to the environment
-apply_same_action_N_times = 1
+apply_same_action_N_times = 3
 
 # Set data type to be used for matrices
 np_precision = np.float32
