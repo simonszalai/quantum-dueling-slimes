@@ -89,17 +89,27 @@ class ActiveInferenceModel:
         return Q_action
 
     @tf.function
-    def calculate_G(self, state_0, action_0, average_G_over_N_samples=10):
+    def calculate_G(self, states, actions, average_G_over_N_samples=1):
         """
-        Calculate Expected Free Energy
+        Calculates Expected Free Energy of a given action taken in a given state.
+        Takes multiple states and actions and calculates G in a batch.
         """
-        term0 = tf.zeros([state_0.shape[0]], self.np_precision)
-        term1 = tf.zeros([state_0.shape[0]], self.np_precision)
-        term2_1 = tf.zeros(state_0.shape[0], self.np_precision)
-        term2_2 = tf.zeros(state_0.shape[0], self.np_precision)
 
+        assert (
+            states.shape[0] == actions.shape[0]
+        ), f"Sample count in states batch ({states.shape[0]}) must equal sample count in actions batch ({actions.shape[0]}) when calculating G."
+
+        samples_in_batch = states.shape[0]
+
+        # Create tensors in the right shape to accumulate the different terms of G (start with all zeros)
+        term0 = tf.zeros([samples_in_batch], self.np_precision)
+        term1 = tf.zeros([samples_in_batch], self.np_precision)
+        term2_1 = tf.zeros(samples_in_batch, self.np_precision)
+        term2_2 = tf.zeros(samples_in_batch, self.np_precision)
+
+        # Calculate G 'average_G_over_N_samples' times
         for _ in range(average_G_over_N_samples):
-            pred_state_1, pred_state_1_mean, pred_state_1_logvar = self.transition_net.transition_with_sample(state_0, action_0)
+            pred_state_1, pred_state_1_mean, pred_state_1_logvar = self.transition_net.transition_with_sample(states, actions)
             pred_obs_1 = self.encoder_net.decode(pred_state_1)
             _, _, encoded_pred_state_1_logvar = self.encoder_net.encode_with_sample(pred_obs_1)
 
@@ -114,7 +124,7 @@ class ActiveInferenceModel:
             term1 += term1_new
 
             # Term 2.1: Sampling different thetas, i.e. sampling different ps_mean/logvar with dropout!
-            pred_state_1_temp1, _, _ = self.transition_net.transition_with_sample(state_0, action_0)
+            pred_state_1_temp1, _, _ = self.transition_net.transition_with_sample(states, actions)
             pred_obs_1_temp1 = self.encoder_net.decode(pred_state_1_temp1)
             term2_1_new = tf.reduce_sum(utils.entropy_gaussian(pred_obs_1_temp1), axis=[1])
             term2_1 += term2_1_new
@@ -124,16 +134,18 @@ class ActiveInferenceModel:
             term2_2_new = tf.reduce_sum(utils.entropy_gaussian(pred_obs_temp2), axis=[1])
             term2_2 += term2_2_new
 
+        # Calculate average for each term separately
         term0 /= float(average_G_over_N_samples)
         term1 /= float(average_G_over_N_samples)
         term2_1 /= float(average_G_over_N_samples)
         term2_2 /= float(average_G_over_N_samples)
 
+        # Use the averaged terms to calculate batch of G's
         # E [ log [ H(o|s,th,pi) ] - E [ H(o|s,pi) ]
         term2 = term2_1 - term2_2
-
         G = -term0 + term1 + term2
 
+        # pred_state_1 is used in MCTS, it is assigned to child nodes as their state
         return G, pred_state_1, pred_state_1_mean
 
     @tf.function
