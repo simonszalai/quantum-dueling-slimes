@@ -34,19 +34,18 @@ np.set_printoptions(threshold=1000)
 # Parse CLI arguments
 parser = argparse.ArgumentParser(description="Training script.")
 parser.add_argument("-r", "--render", action="store_true", help="Enables showing the gym environment during training.")
-parser.add_argument("-p", "--path", type=str, default="", help="Path to save training logs, checkpoints and the trained model.")
+parser.add_argument("-n", "--name", type=str, default="", help="Training run name.")
 parser.add_argument("-e", "--epochs", type=int, default=1000, help="Length of training.")
 parser.add_argument("-b", "--batch", type=int, default=1, help="Select batch size.")
 args = parser.parse_args()
 
 # Set folder names for saving training logs, then create them if they don't exist
-training_base_path = Path(args.path) if args.path else Path("training_files")
-training_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+training_base_path = Path("training_files")
+training_id = args.name or datetime.now().strftime("%Y%m%d-%H%M%S")
 training_run_path = training_base_path / training_id
 os.makedirs(training_run_path, exist_ok=True)
 
 # Create TensorBoard log writer (see README.md how to view logs)
-training_id = datetime.now().strftime("%Y%m%d-%H%M%S")
 TENSORBOARD.create_writer(training_run_path)
 
 # Set up SlimeVolley Environment
