@@ -25,13 +25,13 @@ class Node:
             print(f"Node-{node_id} created")
 
         # Define an accumulator to store total G for each action
-        self.total_free_energy = np.zeros(cfg.action_dim)
+        self.total_free_energy = tf.zeros(cfg.action_dim, cfg.tf_precision)
 
         # Define an accumulator to store how many times each action was explored in this node
-        self.exploration_counts_of_actions = np.zeros(cfg.action_dim)
+        self.exploration_counts_of_actions = tf.zeros(cfg.action_dim, cfg.tf_precision)
 
         # Prior probability distribution for actions
-        self.Q_action = np.zeros(cfg.action_dim)
+        self.Q_action = tf.zeros(cfg.action_dim, cfg.tf_precision)
 
         # Create placeholders for child nodes for each action
         self.child_nodes = [None for _ in range(cfg.action_dim)]
@@ -50,8 +50,8 @@ class Node:
         """
 
         average_free_energy_of_actions = self.total_free_energy / self.exploration_counts_of_actions
-        average_free_energy_of_actions -= average_free_energy_of_actions.min()
-        average_free_energy_of_actions = average_free_energy_of_actions / average_free_energy_of_actions.sum()
+        average_free_energy_of_actions -= tf.math.reduce_min(average_free_energy_of_actions)
+        average_free_energy_of_actions = average_free_energy_of_actions / tf.math.reduce_sum(average_free_energy_of_actions)
 
         return average_free_energy_of_actions
 
@@ -113,7 +113,7 @@ class Node:
         G, pred_next_states, _ = self.model.calculate_G(self.node_state, all_actions_onehot, average_G_over_N_samples=1)
 
         # Update accumulators
-        self.total_free_energy -= G.numpy()  # NOTE: Negative expected free energy to be used as a Q value in RL applications
+        self.total_free_energy -= G  # NOTE: Negative expected free energy to be used as a Q value in RL applications
 
         # Increment exploration count of each action
         self.exploration_counts_of_actions += 1.0
@@ -125,28 +125,30 @@ class Node:
         if self.verbose:
             print(f"Expanded Node-{self.node_id} |", "Total free energy:", self.total_free_energy, "Exploration count:", self.exploration_counts_of_actions)
 
-    # @tf.function
-    def backpropagate(self, path, G):
+    @tf.function
+    def backpropagate(self, path_of_nodes, G):
         """
         Updates G values for all nodes in the traversed path
         """
 
         if self.verbose:
-            print("Back-propagate:", [p.node_id for p in path], G.numpy())
+            print("Back-propagate:", [node.node_id for node in path_of_nodes], G)
 
-        for i in range(len(path)):
-            current_action = path[i].action_in_progress
+        for i in range(len(path_of_nodes)):
+            current_action = path_of_nodes[i].action_in_progress
             if current_action < 0:
-                exit("Back-propagation error: " + str(path) + " " + str(i))
+                exit("Back-propagation error: " + str(path_of_nodes) + " " + str(i))
 
-            path[i].total_free_energy[current_action] -= G
-            path[i].exploration_counts_of_actions[current_action] += 1
-            path[i].action_in_progress = -2  # just to remember it's been examined
+            print("G", G)
+
+            path_of_nodes[i].total_free_energy[current_action] -= G
+            path_of_nodes[i].exploration_counts_of_actions[current_action] += 1
+            path_of_nodes[i].action_in_progress = -2  # just to remember it's been examined
 
             if self.verbose:
-                print("Propagating to node", path[i].node_id, "with N:", path[i].exploration_counts_of_actions)
+                print("Propagating to node", path_of_nodes[i].node_id, "with N:", path_of_nodes[i].exploration_counts_of_actions)
 
-    # @tf.function
+    @tf.function
     def action_selection(self, deterministic=True):
         # ============ Phase A - Build path of most frequently explored actions
         path_of_actions = []

@@ -70,7 +70,7 @@ def compute_omega(loss_habitual, omega_params):
     """
     a, b, c, d = [omega_params[key] for key in omega_params]
 
-    return a * (1.0 - 1.0 / (1.0 + np.exp(-(loss_habitual.numpy() - b) / c))) + d
+    return a * (1.0 - 1.0 / (1.0 + np.exp(-(loss_habitual - b) / c))) + d
 
 
 def action_to_multi_hot(action_index, dtype):

@@ -40,7 +40,7 @@ class MCTS:
         # ============= Phase A: Habitual Network =============
         # Action will be selected in this phase if the habitual network is more confident in one action than the threshold
         # Predict probabilities for each action given the current state using the habitual network
-        Q_action = self.model.habitual_net.predict_action(state_0_mean).numpy()
+        Q_action = self.model.habitual_net.predict_action(state_0_mean)
 
         # Remove list nesting
         root_node.Q_action = np.squeeze(Q_action)
@@ -86,7 +86,7 @@ class MCTS:
 
             # Predict action probabilities of the current node using the habitual net
             Q_action_of_node = self.model.habitual_net.predict_action(start_state.reshape(1, -1))
-            path_of_nodes[-1].Q_action = tf.squeeze(Q_action_of_node).numpy()
+            path_of_nodes[-1].Q_action = tf.squeeze(Q_action_of_node)
 
             # Get the mean of Gs of 'self.simulation_steps' actions executed based on the agent's internal model
             simulation_G_mean, states_explored_in_sim = self.get_G_of_internal_model(start_state)
@@ -122,7 +122,7 @@ class MCTS:
 
         states_explored_in_sim = 0
         # Repeat and average G over 'simulation_repeats' times
-        simulation_G_values = np.zeros(self.simulation_repeats)
+        simulation_G_values = tf.zeros(self.simulation_repeats, cfg.tf_precision)
         for sim_repeat in range(self.simulation_repeats):
             states_explored_in_sim += self.simulation_depth
 

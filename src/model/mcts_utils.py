@@ -1,4 +1,5 @@
 import numpy as np
+import tensorflow as tf
 
 import src.train.config as cfg
 
@@ -11,7 +12,7 @@ def calc_action_threshold(P, axis):
 
 
 def normalize_distribution(x):
-    return x / x.sum(axis=0)
+    return x / tf.reduce_sum(x, axis=0)
 
 
 def select_action_from_dist(action_probs, deterministic):
