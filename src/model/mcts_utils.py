@@ -14,9 +14,7 @@ def normalize_distribution(x):
     return x / x.sum(axis=0)
 
 
-def select_action_for_node(node, deterministic):
-    action_probs = node.get_probs_for_selection()
-
+def select_action_from_dist(action_probs, deterministic):
     if deterministic:
         # Choose the action with the highest probability
         action_index = np.argmax(action_probs)

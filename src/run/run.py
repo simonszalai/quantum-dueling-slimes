@@ -56,8 +56,6 @@ if args.network[-1] == "/":
     args.network = args.network[:-1]
 
 
-mcts = MCTS()
-
 # Set up SlimeVolley Environment
 policy = slimevolleygym.BaselinePolicy()  # defaults to use RNN Baseline for player
 env = gym.make("SlimeVolley-v0")
@@ -66,6 +64,7 @@ env.seed(np.random.randint(0, 10000))
 tprint("Environment loaded")
 
 model = ActiveInferenceModel()
+mcts = MCTS(model=model)
 tprint("Active Inference model instantiated")
 model.load(Path(args.network))
 tprint("Active Inference model checkpoint loaded")

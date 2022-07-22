@@ -12,10 +12,6 @@ from src.train.metrics import TENSORBOARD
 
 class ActiveInferenceModel:
     def __init__(self, training_run_path=None):
-        self.np_precision = cfg.np_precision
-        self.state_dim = cfg.state_dim
-        self.action_dim = cfg.action_dim
-
         self.omega = tf.Variable(1.0, trainable=False, name="omega")
 
         self.tf_precision = f"float{np.finfo(cfg.np_precision).bits}"
@@ -24,7 +20,7 @@ class ActiveInferenceModel:
         self.habitual_net = HabitualNetwork()
         self.transition_net = TransitionNetwork()
         self.encoder_net = EncoderNetwork()
-        self.mcts = MCTS()
+        self.mcts = MCTS(model=self)
 
         self.checkpoint = tf.train.Checkpoint(
             habitual_net=self.habitual_net,
@@ -40,9 +36,6 @@ class ActiveInferenceModel:
         if training_run_path:
             self.checkpoints_path = training_run_path / "checkpoints"
             self.checkpoint_manager = tf.train.CheckpointManager(self.checkpoint, directory=self.checkpoints_path.as_posix(), max_to_keep=5)
-
-        self.pi_one_hot = tf.Variable(np.eye(4), trainable=False, dtype=self.tf_precision)
-        self.pi_one_hot_3 = tf.Variable(np.eye(3), trainable=False, dtype=self.tf_precision)
 
     def check_reward(self, obs_for_actions):
         """
@@ -102,10 +95,10 @@ class ActiveInferenceModel:
         samples_in_batch = states.shape[0]
 
         # Create tensors in the right shape to accumulate the different terms of G (start with all zeros)
-        term0 = tf.zeros([samples_in_batch], self.np_precision)
-        term1 = tf.zeros([samples_in_batch], self.np_precision)
-        term2_1 = tf.zeros(samples_in_batch, self.np_precision)
-        term2_2 = tf.zeros(samples_in_batch, self.np_precision)
+        term0 = tf.zeros([samples_in_batch], cfg.np_precision)
+        term1 = tf.zeros([samples_in_batch], cfg.np_precision)
+        term2_1 = tf.zeros(samples_in_batch, cfg.np_precision)
+        term2_2 = tf.zeros(samples_in_batch, cfg.np_precision)
 
         # Calculate G 'average_G_over_N_samples' times
         for _ in range(average_G_over_N_samples):
@@ -158,7 +151,7 @@ class ActiveInferenceModel:
         encoded_state_0_mean, encoded_state_0_logvar = self.encoder_net.encode(obs)
         encoded_state_0 = self.encoder_net.reparameterize(encoded_state_0_mean, encoded_state_0_logvar)
 
-        sum_G = tf.zeros([obs.shape[0]], self.np_precision)
+        sum_G = tf.zeros([obs.shape[0]], cfg.np_precision)
 
         # Predict s_t+1 for various policies
         if calc_mean:
@@ -179,25 +172,25 @@ class ActiveInferenceModel:
         return sum_G
 
     @tf.function
-    def calculate_G_given_trajectory(self, s0_traj, ps1_traj, ps1_mean_traj, ps1_logvar_traj, pi0_traj):
+    def calculate_G_given_trajectory(self, state_traj, pred_state_traj, pred_state_mean_traj, pred_state_logvar_traj, action_traj):
         # NOTE: len(s0_traj) = len(s1_traj) = len(pi0_traj)
 
-        po1 = self.encoder_net.decode(ps1_traj)
-        qs1, _, qs1_logvar = self.encoder_net.encode_with_sample(po1)
+        pred_obs = self.encoder_net.decode(pred_state_traj)
+        _, _, pred_state_logvar = self.encoder_net.encode_with_sample(pred_obs)
 
         # E [ log P(o|pi) ]
-        term0 = self.check_reward(po1)
+        term0 = self.check_reward(pred_obs)
 
         # E [ log Q(s|pi) - log Q(s|o,pi) ]
-        term1 = -tf.reduce_sum(utils.entropy_normal_from_logvar(ps1_logvar_traj) + utils.entropy_normal_from_logvar(qs1_logvar), axis=1)
+        term1 = -tf.reduce_sum(utils.entropy_normal_from_logvar(pred_state_logvar_traj) + utils.entropy_normal_from_logvar(pred_state_logvar), axis=1)
 
-        #  Term 2.1: Sampling different thetas, i.e. sampling different ps_mean/logvar with dropout!
-        po1_temp1 = self.encoder_net.decode(self.transition_net.transition_with_sample(pi0_traj, s0_traj)[0])
-        term2_1 = tf.reduce_sum(utils.entropy_gaussian(po1_temp1), axis=[1])
+        #  Term 2.1: Sampling different thetas, i.e. sampling different ps_mean/logvar with dropout
+        pred_obs_temp1 = self.encoder_net.decode(self.transition_net.transition_with_sample(action_traj, state_traj)[0])
+        term2_1 = tf.reduce_sum(utils.entropy_gaussian(pred_obs_temp1), axis=[1])
 
-        # Term 2.2: Sampling different s with the same theta, i.e. just the reparametrization trick!
-        po1_temp2 = self.encoder_net.decode(self.transition_net.reparameterize(ps1_mean_traj, ps1_logvar_traj))
-        term2_2 = tf.reduce_sum(utils.entropy_gaussian(po1_temp2), axis=[1])
+        # Term 2.2: Sampling different s with the same theta, i.e. just the reparameterization trick
+        pred_obs_temp2 = self.encoder_net.decode(self.transition_net.reparameterize(pred_state_mean_traj, pred_state_logvar_traj))
+        term2_2 = tf.reduce_sum(utils.entropy_gaussian(pred_obs_temp2), axis=[1])
 
         # E [ log [ H(o|s,th,pi) ] - E [ H(o|s,pi) ]
         term2 = term2_1 - term2_2
@@ -234,10 +227,10 @@ class ActiveInferenceModel:
         return action_agent, [action_index, P_action, agent_action_onehot]
 
     def predict_agent_action_inf(self, obs):
-        mcts_path, repeats_done, states_explored, all_paths, all_paths_G = self.mcts.active_inference_mcts(model=self, obs=obs)
+        action_agent = self.mcts.active_inference_mcts(obs)
 
         # Convert action choices to multi-hot (for environment)
-        action_agent = utils.action_to_multi_hot(mcts_path[0], dtype=self.tf_precision)
+        action_agent = utils.action_to_multi_hot(action_agent, dtype=cfg.tf_precision)
 
         return action_agent
 
@@ -272,41 +265,66 @@ class ActiveInferenceModel:
 
         TENSORBOARD.write_all_metrics(step=step)
 
-    # TODO: refactor
-    def mcts_step_simulate(self, starting_s, depth):
-        s0 = np.zeros((depth, self.state_dim), self.np_precision)
-        ps1 = np.zeros((depth, self.state_dim), self.np_precision)
-        ps1_mean = np.zeros((depth, self.state_dim), self.np_precision)
-        ps1_logvar = np.zeros((depth, self.state_dim), self.np_precision)
-        pi0 = np.zeros((depth, self.action_dim), self.np_precision)
+    def mcts_step_simulate(self, start_state, simulation_depth):
+        """
+        Starting from a state, this function uses the habitual net to predict the action taken, then using the
+        starting state and the predicted action it predicts the next state using the transition net, and repeats this
+        until simulation_depth is reached.
+        """
 
-        s0[0] = starting_s
-        try:
-            Qpi_t_to_return = self.habitual_net.predict_action(s0[0].reshape(1, -1))[1].numpy()[0]
-            pi0[0, np.random.choice(self.action_dim, p=Qpi_t_to_return)] = 1.0
-        except Exception:
-            pi0[0, 0] = 1.0
-            Qpi_t_to_return = pi0[0]
-        ps1_new, ps1_mean_new, ps1_logvar_new = self.transition_net.transition_with_sample(pi0[0].reshape(1, -1), s0[0].reshape(1, -1))
-        ps1[0] = ps1_new[0].numpy()
-        ps1_mean[0] = ps1_mean_new[0].numpy()
-        ps1_logvar[0] = ps1_logvar_new[0].numpy()
-        if 1 < depth:
-            s0[1] = ps1_new[0].numpy()
-        for t in range(1, depth):
+        # Init empty np.arrays to store results of simulation
+        # TODO: try to refactor to tf tensors so eager mode can be disabled
+        start_states = np.zeros((simulation_depth, cfg.state_dim), cfg.np_precision)
+        pred_states = np.zeros((simulation_depth, cfg.state_dim), cfg.np_precision)
+        pred_states_mean = np.zeros((simulation_depth, cfg.state_dim), cfg.np_precision)
+        pred_states_logvar = np.zeros((simulation_depth, cfg.state_dim), cfg.np_precision)
+        actions = np.zeros((simulation_depth, cfg.action_dim), cfg.np_precision)
+
+        start_states[0] = start_state
+
+        # Loop through simulation depths and select an action using the habitual net
+        for d in range(0, simulation_depth):
             try:
-                pi0[t, np.random.choice(self.action_dim, p=self.habitual_net.predict_action(s0[t].reshape(1, -1))[1].numpy()[0])] = 1.0
-            except Exception:
-                pi0[t, 0] = 1.0
-            ps1_new, ps1_mean_new, ps1_logvar_new = self.transition_net.transition_with_sample(pi0[t].reshape(1, -1), s0[t].reshape(1, -1))
-            ps1[t] = ps1_new[0].numpy()
-            ps1_mean[t] = ps1_mean_new[0].numpy()
-            ps1_logvar[t] = ps1_logvar_new[0].numpy()
-            if t + 1 < depth:
-                s0[t + 1] = ps1_new[0].numpy()
+                # Get state of current depth and add batch dimension of 1
+                state_d = start_states[d].reshape(1, -1)
 
-        G = tf.reduce_mean(self.calculate_G_given_trajectory(s0, ps1, ps1_mean, ps1_logvar, pi0)).numpy()
-        return G, pi0, Qpi_t_to_return
+                # Predict action usually taken given current state using the habitual net
+                Q_action = self.habitual_net.predict_action(state_d)
+                Q_action = tf.squeeze(Q_action).numpy()
+
+                # Choose an action from the predicted distribution and save it to the register as one-hot
+                depth_d_action = np.random.choice(cfg.action_dim, p=Q_action)
+                actions[d, depth_d_action] = 1.0
+
+            except Exception:
+                print("Mysterious EXCEPTION!")
+                # Select 'do-nothing' action
+                actions[d, 0] = 1.0
+
+            # Get state and action of current depth
+            action_d_onehot = actions[d].reshape(1, -1)
+            state_d = start_states[d].reshape(1, -1)
+
+            # Predict next state given current state and predicted action (by the habitual net)
+            pred_state_next, pred_state_next_mean, pred_state_next_logvar = self.transition_net.transition_with_sample(action_d_onehot, state_d)
+
+            # Save predicted state to the trajectory register
+            pred_states[d] = tf.squeeze(pred_state_next).numpy()
+            pred_states_mean[d] = tf.squeeze(pred_state_next_mean).numpy()
+            pred_states_logvar[d] = tf.squeeze(pred_state_next_logvar).numpy()
+
+            # If not in last level of depth
+            if d + 1 < simulation_depth:
+                # Assign predicted state to trajectory register to be used as start state for next level of depth
+                start_states[d + 1] = tf.squeeze(pred_state_next).numpy()
+
+        # Calculate G given the generated trajectory for each level
+        G_of_trajectory = self.calculate_G_given_trajectory(start_states, pred_states, pred_states_mean, pred_states_logvar, actions)
+
+        # Get the mean of the levels
+        G = tf.reduce_mean(G_of_trajectory).numpy()
+
+        return G
 
     def save(self, save_path):
         self.habitual_net.save(save_path / "habitual_net")

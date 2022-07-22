@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 
 import src.train.config as cfg
-from src.model.mcts_utils import select_action_for_node
+from src.model.mcts_utils import select_action_from_dist
 
 
 node_id = 0
@@ -12,8 +12,8 @@ class Node:
     def __init__(self, state, model, C, verbose=False, using_prior_for_exploration=False):
         global node_id
 
-        # The latent state that corresponds to this node
-        self.node_state = np.stack((state,) * cfg.action_dim, axis=0)  # NOTE: It's saved cfg.action_dim times to simplify calculations
+        # The latent state that corresponds to this node NOTE: The same state is saved cfg.action_dim times to enable calculation of G as a batch
+        self.node_state = np.stack((state,) * cfg.action_dim, axis=0)
         self.model = model
         self.verbose = verbose
         self.using_prior_for_exploration = using_prior_for_exploration
@@ -69,7 +69,7 @@ class Node:
         path_of_actions = []
 
         # Select action for current node
-        self.action_in_progress = select_action_for_node(self, deterministic)
+        self.action_in_progress = select_action_from_dist(self.get_probs_for_selection(), deterministic)
 
         # Add selected action to path_of_actions
         path_of_actions.append(self.action_in_progress)
@@ -86,7 +86,7 @@ class Node:
             last_node = path_of_nodes[-1]
 
             # Select action for last node
-            last_node.action_in_progress = select_action_for_node(last_node, deterministic)
+            last_node.action_in_progress = select_action_from_dist(last_node.get_probs_for_selection(), deterministic)
 
             # Add child node of the last node that belongs to the selected action to path_of_nodes
             path_of_nodes.append(last_node.child_nodes[last_node.action_in_progress])
@@ -114,6 +114,8 @@ class Node:
 
         # Update accumulators
         self.total_free_energy -= G.numpy()  # NOTE: Negative expected free energy to be used as a Q value in RL applications
+
+        # Increment exploration count of each action
         self.exploration_counts_of_actions += 1.0
 
         # Assign a child node for each possible action
@@ -125,58 +127,75 @@ class Node:
 
     # @tf.function
     def backpropagate(self, path, G):
+        """
+        Updates G values for all nodes in the traversed path
+        """
+
         if self.verbose:
             print("Back-propagate:", [p.node_id for p in path], G.numpy())
+
         for i in range(len(path)):
-            if path[i].action_in_progress < 0:
+            current_action = path[i].action_in_progress
+            if current_action < 0:
                 exit("Back-propagation error: " + str(path) + " " + str(i))
-            path[i].total_free_energy[path[i].action_in_progress] -= G
-            path[i].exploration_times[path[i].action_in_progress] += 1
-            path[i].action_in_progress = -2  # just to remember it's been examined..
+
+            path[i].total_free_energy[current_action] -= G
+            path[i].exploration_counts_of_actions[current_action] += 1
+            path[i].action_in_progress = -2  # just to remember it's been examined
+
             if self.verbose:
-                print("Propagating to node", path[i].node_id, "with N:", path[i].exploration_times)
+                print("Propagating to node", path[i].node_id, "with N:", path[i].exploration_counts_of_actions)
 
     # @tf.function
     def action_selection(self, deterministic=True):
-        path = []
-        if deterministic:
-            path.append(np.argmax(self.exploration_counts_of_actions))
-        else:
-            path.append(np.random.choice(cfg.action_dim, p=self.normalization(self.exploration_counts_of_actions)))
-        node = self.child_nodes[path[-1]]
-        if self.verbose:
-            print(len(path), node.node_id)
-        while None not in node.child_nodes:
-            if deterministic:
-                path.append(np.argmax(node.exploration_times))
-            else:
-                path.append(np.random.choice(cfg.action_dim, p=self.normalization(node.exploration_times)))
-            node = node.child_nodes[path[-1]]
-            if self.verbose:
-                print(len(path), node.node_id)
+        # ============ Phase A - Build path of most frequently explored actions
+        path_of_actions = []
 
-        trimmed_path = []
-        i = 0
-        while i < len(path) - 1:
-            if cfg.action_dim == 4:
-                if (
-                    (path[i] == 0 and path[i + 1] == 1)
-                    or (path[i] == 1 and path[i + 1] == 0)
-                    or (path[i] == 2 and path[i + 1] == 3)
-                    or (path[i] == 3 and path[i + 1] == 2)
-                ):
-                    i += 2
-                else:
-                    trimmed_path.append(path[i])
-                    i += 1
-            elif cfg.action_dim == 3:
-                if (path[i] == 1 and path[i + 1] == 2) or (path[i] == 2 and path[i + 1] == 1):
-                    i += 2
-                else:
-                    trimmed_path.append(path[i])
-                    i += 1
-            else:
-                exit("Error: Unknown number of pi_dim " + str(cfg.action_dim))
-        if self.verbose:
-            print("Action selection:", path, "trimmed path:", trimmed_path)
-        return path
+        # First append the most frequently explored action
+        action_0 = select_action_from_dist(self.exploration_counts_of_actions, deterministic)
+        path_of_actions.append(action_0)
+
+        # Current node is the one belonging to the most frequently explored action
+        most_freq_child_node = self.child_nodes[action_0]
+
+        # Traverse to the leaf node at the end of the path
+        while None not in most_freq_child_node.child_nodes:
+            action_of_node = select_action_from_dist(most_freq_child_node.exploration_counts_of_actions, deterministic)
+            path_of_actions.append(action_of_node)
+
+            if self.verbose:
+                print(f"Traversed Node-{most_freq_child_node.node_id}. Total length of path: {len(path_of_actions)}")
+
+            most_freq_child_node = most_freq_child_node.child_nodes[action_of_node]
+
+        # ============ Phase B - ???
+        # trimmed_path = []
+        # i = 0
+        # while i < len(path_of_actions) - 1:
+        #     current_action = path_of_actions[i]
+        #     next_action = path_of_actions[i]
+
+        #     if cfg.action_dim == 4:
+        #         if (
+        #             (current_action == 0 and next_action == 1)
+        #             or (current_action == 1 and next_action == 0)
+        #             or (current_action == 2 and next_action == 3)
+        #             or (current_action == 3 and next_action == 2)
+        #         ):
+        #             i += 2
+        #         else:
+        #             trimmed_path.append(current_action)
+        #             i += 1
+        #     elif cfg.action_dim == 3:
+        #         if (current_action == 1 and next_action == 2) or (current_action == 2 and next_action == 1):
+        #             i += 2
+        #         else:
+        #             trimmed_path.append(current_action)
+        #             i += 1
+        #     else:
+        #         exit("Error: Unknown number of pi_dim " + str(cfg.action_dim))
+
+        # if self.verbose:
+        #     print("Action selection:", path_of_actions, "trimmed path:", trimmed_path)
+
+        return path_of_actions
