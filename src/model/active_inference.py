@@ -63,15 +63,55 @@ class ActiveInferenceModel:
         # [ 0.2    0.482    0.       -0.022     -1.714  0.891   1.191   -0.933    1.725       0.237        0.           1.252]
         # [ 0.2    0.478    0.       -0.12      -1.675  0.856   1.191   -1.031    1.725       0.275        0.           1.154]
 
+        def get_agent_ball_dist(x_ball, y_ball, x_agent, y_agent):
+            x_dist = tf.math.abs(x_agent - x_ball)
+            y_dist = tf.math.abs(y_agent - y_ball)
+            dist = tf.math.sqrt(tf.square(x_dist) + tf.square(y_dist))
+            return dist
+
         actions_count = len(obs_for_actions)
         results = tf.TensorArray(cfg.tf_precision, size=actions_count)
         for i in tf.range(actions_count):
             obs = obs_for_actions[i]
+            x_agent = tf.gather(obs, 0)
+            y_agent = tf.gather(obs, 1)
             x_ball = tf.gather(obs, 4)
+            y_ball = tf.gather(obs, 5)
+            Vx_ball = tf.gather(obs, 6)
 
-            # TODO: Use sigmoid: smooth step function
-            reward = x_ball
-            results = results.write(i, reward)
+            # We encode reward as expected outcome which is inversely proportional to the probability of the target observation given the ideal input policy
+
+            # Here higher reward == incentive, lower reward == penalty
+            reward = 0.0
+
+            # 1. If the ball is moving towards the agent, agent should get closer to the ball
+            # Vx_ball > 0: moving towards the agent's half (to the right)
+            if Vx_ball > 0:
+                agent_ball_dist = get_agent_ball_dist(x_ball, y_ball, x_agent, y_agent)
+                # Penalize distance between agent and ball
+                reward -= agent_ball_dist
+
+            # 2. Reward for the ball moving towards the opponents half
+            reward += Vx_ball
+
+            # 3. On the agent's side, reward if the ball is higher
+            if x_ball > 0:
+                reward += y_ball
+
+            # 4. On the opponent's side, penalize if the ball is higher
+            if x_ball < 0:
+                reward -= y_ball
+
+            # 5. On the agent's side, big penalty if the ball touches the ground
+            if x_ball > 0 and y_ball <= 0.25:
+                reward -= 1000
+
+            # 6. On the opponent's side, big reward if the ball touches the ground
+            if x_ball < 0 and y_ball <= 0.25:
+                reward += 1000
+
+            # Swap the sign of the reward => smaller reward is better
+            results = results.write(i, -1 * reward)
 
         return results.stack()
 
@@ -116,13 +156,13 @@ class ActiveInferenceModel:
             )
             term1 += term1_new
 
-            # Term 2.1: Sampling different thetas, i.e. sampling different ps_mean/logvar with dropout!
+            # Term 2.1: Sampling different thetas, i.e. sampling different ps_mean/logvar with dropout
             pred_state_1_temp1, _, _ = self.transition_net.transition_with_sample(states, actions)
             pred_obs_1_temp1 = self.encoder_net.decode(pred_state_1_temp1)
             term2_1_new = tf.reduce_sum(utils.entropy_gaussian(pred_obs_1_temp1), axis=[1])
             term2_1 += term2_1_new
 
-            # Term 2.2: Sampling different s with the same theta, i.e. just the reparametrization trick!
+            # Term 2.2: Sampling different s with the same theta, i.e. just the reparametrization trick
             pred_obs_temp2 = self.encoder_net.decode(pred_state_1)
             term2_2_new = tf.reduce_sum(utils.entropy_gaussian(pred_obs_temp2), axis=[1])
             term2_2 += term2_2_new
@@ -296,8 +336,8 @@ class ActiveInferenceModel:
                 depth_d_action = np.random.choice(cfg.action_dim, p=Q_action)
                 actions[d, depth_d_action] = 1.0
 
-            except Exception:
-                print("Mysterious EXCEPTION!")
+            except Exception as e:
+                print("Mysterious EXCEPTION!", e)
                 # Select 'do-nothing' action
                 actions[d, 0] = 1.0
 
