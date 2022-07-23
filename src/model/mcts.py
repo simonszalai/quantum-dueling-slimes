@@ -9,7 +9,7 @@ node_id = 0
 
 
 class MCTS:
-    def __init__(self, model, C=1.0, threshold=0.5, repeats=3, simulation_repeats=1, simulation_depth=3, use_habit=False):
+    def __init__(self, model, C=0.5, threshold=0.25, repeats=10, simulation_repeats=1, simulation_depth=3, use_habit=False):
         self.model = model
         self.C = C  # Higher value increases probability of choosing less explored actions
         self.threshold = threshold
@@ -17,7 +17,7 @@ class MCTS:
         self.simulation_repeats = simulation_repeats
         self.simulation_depth = simulation_depth
         self.use_habit = use_habit
-        self.verbose = False
+        self.verbose = True
         self.using_prior_for_exploration = False
 
     def active_inference_mcts(self, obs):
@@ -59,6 +59,7 @@ class MCTS:
         root_node.expand()
 
         # ============= Phase B: Exploration Count =============
+        path_of_nodes = []
         for repeat in range(self.repeats):
             norm_exp_counts_of_actions = normalize_distribution(root_node.exploration_counts_of_actions)
             exp_count_threshold = calc_action_threshold(norm_exp_counts_of_actions, axis=0)
@@ -66,13 +67,7 @@ class MCTS:
             if exp_count_threshold > self.threshold:
                 final_path = root_node.action_selection(deterministic=True)
                 if self.verbose:
-                    print(
-                        "Action selected in Phase B |",
-                        "Probabilities:",
-                        np.round(root_node.probs_for_selection(), 2),
-                        "Exploration count:",
-                        root_node.exploration_counts_of_actions,
-                    )
+                    self.print_action_selected(root_node, len(path_of_nodes), repeats=repeat, phase="B")
 
                 return final_path[0]
 
@@ -104,15 +99,16 @@ class MCTS:
 
         final_path = root_node.action_selection(deterministic=True)
         if self.verbose:
-            print(
-                "Action selected in Phase C |",
-                "Probabilities:",
-                np.round(root_node.probs_for_selection(), 2),
-                "Exploration count:",
-                root_node.exploration_counts_of_actions,
-            )
+            self.print_action_selected(root_node, len(path_of_nodes), repeats=repeat, phase="C")
 
         return final_path[0]
+
+    def print_action_selected(self, node, path_length, repeats, phase):
+        probs = [str(p).ljust(4, "0") for p in np.round(node.get_probs_for_selection(), 2)]
+        counts = [str(int(c)).rjust(4) for c in node.exploration_counts_of_actions]
+        print(f"Action selected in Phase {phase} - depth: {path_length} - repeats: {repeats}")
+        print(f"  Probs:  {' | '.join(probs)}")
+        print(f"  Counts: {' | '.join(counts)}")
 
     def get_G_of_internal_model(self, start_state):
         """

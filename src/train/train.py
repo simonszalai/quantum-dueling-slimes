@@ -79,7 +79,7 @@ for epoch in range(0, args.epochs + 1):
         round_ += 1
 
         # Get action of the agent
-        action_agent, train_info = model.predict_agent_action(obs_agent)
+        action_agent, train_info = model.predict_agent_action_train(obs_agent)
         action_index, P_action, agent_action_onehot = train_info
 
         # Get action of the opponent

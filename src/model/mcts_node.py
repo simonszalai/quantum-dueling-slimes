@@ -59,6 +59,7 @@ class Node:
         norm_free_energy_of_actions = self.get_normalized_free_energy_of_actions()
         bonus_of_less_explored_actions = self.C * 1.0 / self.exploration_counts_of_actions
 
+        # Boost probability of actions that would be visited by habit but were not visited often
         if self.using_prior_for_exploration:
             bonus_of_less_explored_actions *= self.Q_action
 
@@ -82,17 +83,14 @@ class Node:
 
         # Traverse the path until hitting a leaf node
         while None not in path_of_nodes[-1].child_nodes:
-            # Get last node from path_of_nodes
-            last_node = path_of_nodes[-1]
-
             # Select action for last node
-            last_node.action_in_progress = select_action_from_dist(last_node.get_probs_for_selection(), deterministic)
+            path_of_nodes[-1].action_in_progress = select_action_from_dist(path_of_nodes[-1].get_probs_for_selection(), deterministic)
 
             # Add child node of the last node that belongs to the selected action to path_of_nodes
-            path_of_nodes.append(last_node.child_nodes[last_node.action_in_progress])
+            path_of_nodes.append(path_of_nodes[-1].child_nodes[path_of_nodes[-1].action_in_progress])
 
             # Add action selected for last node to path_of_actions
-            path_of_actions.append(last_node.action_in_progress)
+            path_of_actions.append(path_of_nodes[-1].action_in_progress)
 
         if self.verbose:
             print(f"select_action of Node-{self.node_id}", "Node IDs:", [p.node_id for p in path_of_nodes], "actions:", path_of_actions)
@@ -150,6 +148,10 @@ class Node:
 
     @tf.function
     def action_selection(self, deterministic=True):
+        """
+        Traverses the generated path and at each step selects the most frequently explored action.
+        """
+
         # ============ Phase A - Build path of most frequently explored actions
         path_of_actions = []
 
@@ -158,17 +160,17 @@ class Node:
         path_of_actions.append(action_0)
 
         # Current node is the one belonging to the most frequently explored action
-        most_freq_child_node = self.child_nodes[action_0]
+        selected_child_node = self.child_nodes[action_0]
 
         # Traverse to the leaf node at the end of the path
-        while None not in most_freq_child_node.child_nodes:
-            action_of_node = select_action_from_dist(most_freq_child_node.exploration_counts_of_actions, deterministic)
+        while None not in selected_child_node.child_nodes:
+            action_of_node = select_action_from_dist(selected_child_node.exploration_counts_of_actions, deterministic)
             path_of_actions.append(action_of_node)
 
             if self.verbose:
-                print(f"Traversed Node-{most_freq_child_node.node_id}. Total length of path: {len(path_of_actions)}")
+                print(f"Traversed Node-{selected_child_node.node_id}. Total length of path: {len(path_of_actions)}")
 
-            most_freq_child_node = most_freq_child_node.child_nodes[action_of_node]
+            selected_child_node = selected_child_node.child_nodes[action_of_node]
 
         # ============ Phase B - ???
         # trimmed_path = []
