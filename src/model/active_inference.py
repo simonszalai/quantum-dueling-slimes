@@ -312,63 +312,61 @@ class ActiveInferenceModel:
         until simulation_depth is reached.
         """
 
-        # Init empty np.arrays to store results of simulation
-        # TODO: try to refactor to tf tensors so eager mode can be disabled - use tf.while_loop
-        # start_states = tf.zeros((simulation_depth, cfg.state_dim), cfg.tf_precision)
-        # actions = tf.zeros((simulation_depth, cfg.action_dim), cfg.tf_precision)
-        # pred_states = tf.zeros((simulation_depth, cfg.state_dim), cfg.tf_precision)
-        # pred_states_mean = tf.zeros((simulation_depth, cfg.state_dim), cfg.tf_precision)
-        # pred_states_logvar = tf.zeros((simulation_depth, cfg.state_dim), cfg.tf_precision)
+        start_states = tf.TensorArray(cfg.tf_precision, size=0, dynamic_size=True, clear_after_read=False)
+        actions = tf.TensorArray(cfg.tf_precision, size=0, dynamic_size=True, clear_after_read=False)
+        pred_states = tf.TensorArray(cfg.tf_precision, size=0, dynamic_size=True, clear_after_read=False)
+        pred_states_mean = tf.TensorArray(cfg.tf_precision, size=0, dynamic_size=True, clear_after_read=False)
+        pred_states_logvar = tf.TensorArray(cfg.tf_precision, size=0, dynamic_size=True, clear_after_read=False)
 
-        start_states = tf.TensorArray(cfg.tf_precision, size=(simulation_depth, cfg.state_dim))
-        actions = tf.TensorArray(cfg.tf_precision, size=(simulation_depth, cfg.action_dim))
-        pred_states = tf.TensorArray(cfg.tf_precision, size=(simulation_depth, cfg.state_dim))
-        pred_states_mean = tf.TensorArray(cfg.tf_precision, size=(simulation_depth, cfg.state_dim))
-        pred_states_logvar = tf.TensorArray(cfg.tf_precision, size=(simulation_depth, cfg.state_dim))
-
-        start_states.write(0, start_state)
+        start_states = start_states.write(0, start_state)
 
         # Loop through simulation depths and select an action using the habitual net
         for d in range(0, simulation_depth):
             try:
                 # Get state of current depth and add batch dimension of 1
-                state_d = start_states[d].reshape(1, -1)
+                state_d = tf.expand_dims(start_states.read(d), axis=0)
 
                 # Predict action usually taken given current state using the habitual net
                 Q_action = self.habitual_net.predict_action(state_d)
-                Q_action = tf.squeeze(Q_action)
 
                 # Choose an action from the predicted distribution and save it to the register as one-hot
-                depth_d_action = np.random.choice(cfg.action_dim, p=Q_action)
+                # tf.random.categorical needs log distribution
+                action_d = tf.random.categorical(tf.math.log(Q_action), 1)
+                action_d_one_hot = tf.one_hot(tf.squeeze(action_d), cfg.action_dim, dtype=cfg.tf_precision)
+
                 # actions[d, depth_d_action] = 1.0
-                actions.write(d, tf.one_hot(depth_d_action, on_value=1.0, off_value=0.0, dtype=cfg.tf_precision))
+                actions = actions.write(d, action_d_one_hot)
 
             except Exception as e:
                 print("Mysterious EXCEPTION!", e)
                 # Select 'do-nothing' action
                 # actions[d, 0] = 1.0
-                actions.write(d, tf.one_hot(0, on_value=1.0, off_value=0.0, dtype=cfg.tf_precision))
+                actions = actions.write(d, tf.one_hot(0, cfg.action_dim, dtype=cfg.tf_precision))
 
             # Get state and action of current depth
-            action_d_onehot = actions[d].reshape(1, -1)
-            state_d = start_states[d].reshape(1, -1)
+            action_d_onehot = tf.expand_dims(actions.read(d), axis=0)
+            state_d = tf.expand_dims(start_states.read(d), axis=0)
 
             # Predict next state given current state and predicted action (by the habitual net)
             pred_state_next, pred_state_next_mean, pred_state_next_logvar = self.transition_net.transition_with_sample(action_d_onehot, state_d)
 
             # Save predicted state to the trajectory register
-            pred_states[d] = tf.squeeze(pred_state_next)
-            pred_states_mean[d] = tf.squeeze(pred_state_next_mean)
-            pred_states_logvar[d] = tf.squeeze(pred_state_next_logvar)
+            pred_states = pred_states.write(d, tf.squeeze(pred_state_next))
+            pred_states_mean = pred_states_mean.write(d, tf.squeeze(pred_state_next_mean))
+            pred_states_logvar = pred_states_logvar.write(d, tf.squeeze(pred_state_next_logvar))
 
             # If not in last level of depth
             if d + 1 < simulation_depth:
                 # Assign predicted state to trajectory register to be used as start state for next level of depth
-                start_states.write(d + 1, tf.squeeze(pred_state_next))
+                start_states = start_states.write(d + 1, tf.squeeze(pred_state_next))
 
         # Calculate G given the generated trajectory for each level
         G_of_trajectory = self.calculate_G_given_trajectory(
-            start_states.stack(), pred_states.stack(), pred_states_mean.stack(), pred_states_logvar.stack(), actions.stack()
+            start_states.stack(),
+            pred_states.stack(),
+            pred_states_mean.stack(),
+            pred_states_logvar.stack(),
+            actions.stack(),
         )
 
         # Get the mean of the levels

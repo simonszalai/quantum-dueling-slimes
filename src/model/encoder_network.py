@@ -23,7 +23,8 @@ class EncoderNetwork(tf.keras.Model):
                 tf.keras.layers.Dense(16, activation=tf.keras.activations.linear, kernel_initializer="identity"),
                 tf.keras.layers.Dropout(0.5),
                 tf.keras.layers.Dense(cfg.state_dim + cfg.state_dim, activation=tf.keras.activations.linear, kernel_initializer="identity"),
-            ]
+            ],
+            name="encoder_sequential",
         )  # No activation
 
         self.decoder_model = tf.keras.Sequential(
@@ -32,7 +33,8 @@ class EncoderNetwork(tf.keras.Model):
                 tf.keras.layers.Dense(16, activation=tf.keras.activations.linear, kernel_initializer="identity"),
                 tf.keras.layers.Dropout(0.5),
                 tf.keras.layers.Dense(cfg.state_dim, activation=tf.keras.activations.linear, kernel_initializer="identity"),
-            ]
+            ],
+            name="decoder_sequential",
         )
 
     @tf.function

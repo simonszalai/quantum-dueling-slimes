@@ -15,15 +15,16 @@ class TransitionNetwork(tf.keras.Model):
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=cfg.learning_rates.get("transition"))
         self.model = tf.keras.Sequential(
             [
-                tf.keras.layers.InputLayer(input_shape=(cfg.action_dim + cfg.state_dim,)),
-                tf.keras.layers.Dense(units=32, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.InputLayer(input_shape=(cfg.action_dim + cfg.state_dim,), name="transition_input"),
+                tf.keras.layers.Dense(units=32, activation=tf.nn.relu, kernel_initializer="he_uniform", name="transition_dense_1"),
                 tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(units=32, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(units=32, activation=tf.nn.relu, kernel_initializer="he_uniform", name="transition_dense_2"),
                 tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(units=32, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(units=32, activation=tf.nn.relu, kernel_initializer="he_uniform", name="transition_dense_3"),
                 tf.keras.layers.Dropout(0.5),
                 tf.keras.layers.Dense(cfg.state_dim + cfg.state_dim),
-            ]
+            ],
+            name="transition_sequential",
         )  # No activation
 
     @tf.function

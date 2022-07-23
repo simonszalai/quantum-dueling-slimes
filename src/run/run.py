@@ -12,7 +12,7 @@ from src.model.mcts import MCTS
 from src.model.active_inference import ActiveInferenceModel
 
 
-tf.config.run_functions_eagerly(False)
+tf.config.run_functions_eagerly(True)
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
@@ -82,7 +82,9 @@ done = False
 
 
 while not done:
+    start = time.time()
     action_agent = model.predict_agent_action_inf(obs_agent)
+    print(time.time() - start)
     action_opponent = policy.predict(obs_opponent)
 
     obs_agent, reward, done, info = env.step(action_agent, action_opponent)

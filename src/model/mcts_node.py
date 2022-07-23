@@ -24,11 +24,11 @@ class Node:
         if self.verbose:
             print(f"Node-{node_id} created")
 
-        # Define an accumulator to store total G for each action
-        self.total_free_energy = tf.zeros(cfg.action_dim, cfg.tf_precision)
+        # Define an accumulator (list of tf.Variables) to store total G for each action
+        self.total_free_energy = [tf.Variable(initial_value=0, dtype=cfg.tf_precision) for _ in range(cfg.action_dim)]
 
-        # Define an accumulator to store how many times each action was explored in this node
-        self.exploration_counts_of_actions = tf.zeros(cfg.action_dim, cfg.tf_precision)
+        # Define an accumulator (list of tf.Variables) to store how many times each action was explored in this node
+        self.exploration_counts_of_actions = [tf.Variable(initial_value=0, dtype=cfg.tf_precision) for _ in range(cfg.action_dim)]
 
         # Prior probability distribution for actions
         self.Q_action = tf.zeros(cfg.action_dim, cfg.tf_precision)
@@ -48,8 +48,15 @@ class Node:
         """
         Original name: Q
         """
+        # total_free_energy = tf.Variable(0.0)
+        # for free_energy_of_action in self.total_free_energy:
+        #     total_free_energy.assign_add(free_energy_of_action)
 
-        average_free_energy_of_actions = self.total_free_energy / self.exploration_counts_of_actions
+        # total_exploration_counts = tf.Variable(0.0)
+        # for exp_count_of_action in self.exploration_counts_of_actions:
+        #     total_exploration_counts.assign_add(exp_count_of_action)
+
+        average_free_energy_of_actions = tf.convert_to_tensor(self.total_free_energy) / tf.convert_to_tensor(self.exploration_counts_of_actions)
         average_free_energy_of_actions -= tf.math.reduce_min(average_free_energy_of_actions)
         average_free_energy_of_actions = average_free_energy_of_actions / tf.math.reduce_sum(average_free_energy_of_actions)
 
@@ -57,7 +64,7 @@ class Node:
 
     def get_probs_for_selection(self):
         norm_free_energy_of_actions = self.get_normalized_free_energy_of_actions()
-        bonus_of_less_explored_actions = self.C * 1.0 / self.exploration_counts_of_actions
+        bonus_of_less_explored_actions = self.C * 1.0 / tf.convert_to_tensor(self.exploration_counts_of_actions)
 
         # Boost probability of actions that would be visited by habit but were not visited often
         if self.using_prior_for_exploration:
@@ -111,10 +118,12 @@ class Node:
         G, pred_next_states, _ = self.model.calculate_G(self.node_state, all_actions_onehot, average_G_over_N_samples=1)
 
         # Update accumulators
-        self.total_free_energy -= G  # NOTE: Negative expected free energy to be used as a Q value in RL applications
+        for i, G_of_action in enumerate(G):
+            self.total_free_energy[i].assign_sub(G_of_action)  # NOTE: Negative expected free energy to be used as a Q value in RL applications
 
         # Increment exploration count of each action
-        self.exploration_counts_of_actions += 1.0
+        for exploration_counts_of_action in self.exploration_counts_of_actions:
+            exploration_counts_of_action.assign_add(1.0)
 
         # Assign a child node for each possible action
         for i in range(cfg.action_dim):
@@ -137,10 +146,8 @@ class Node:
             if current_action < 0:
                 exit("Back-propagation error: " + str(path_of_nodes) + " " + str(i))
 
-            print("G", G)
-
-            path_of_nodes[i].total_free_energy[current_action] -= G
-            path_of_nodes[i].exploration_counts_of_actions[current_action] += 1
+            path_of_nodes[i].total_free_energy[current_action].assign_sub(path_of_nodes[i].total_free_energy[current_action], G)
+            path_of_nodes[i].exploration_counts_of_actions[current_action].assign_add(path_of_nodes[i].exploration_counts_of_actions[current_action], 1)
             path_of_nodes[i].action_in_progress = -2  # just to remember it's been examined
 
             if self.verbose:
@@ -156,7 +163,7 @@ class Node:
         path_of_actions = []
 
         # First append the most frequently explored action
-        action_0 = select_action_from_dist(self.exploration_counts_of_actions, deterministic)
+        action_0 = select_action_from_dist(tf.convert_to_tensor(self.exploration_counts_of_actions), deterministic)
         path_of_actions.append(action_0)
 
         # Current node is the one belonging to the most frequently explored action
@@ -164,7 +171,7 @@ class Node:
 
         # Traverse to the leaf node at the end of the path
         while None not in selected_child_node.child_nodes:
-            action_of_node = select_action_from_dist(selected_child_node.exploration_counts_of_actions, deterministic)
+            action_of_node = select_action_from_dist(tf.convert_to_tensor(selected_child_node.exploration_counts_of_actions), deterministic)
             path_of_actions.append(action_of_node)
 
             if self.verbose:

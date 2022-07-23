@@ -16,11 +16,12 @@ class HabitualNetwork(tf.keras.Model):
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=cfg.learning_rates.get("habitual"))
         self.model = tf.keras.Sequential(
             [
-                tf.keras.layers.InputLayer(input_shape=(cfg.state_dim,)),
-                tf.keras.layers.Dense(units=16, activation=tf.nn.relu, kernel_initializer="he_uniform"),
-                tf.keras.layers.Dense(units=16, activation=tf.nn.relu, kernel_initializer="he_uniform"),
-                tf.keras.layers.Dense(cfg.action_dim),
-            ]
+                tf.keras.layers.InputLayer(input_shape=(cfg.state_dim,), name="habitual_input"),
+                tf.keras.layers.Dense(units=16, activation=tf.nn.relu, kernel_initializer="he_uniform", name="habitual_dense_1"),
+                tf.keras.layers.Dense(units=16, activation=tf.nn.relu, kernel_initializer="he_uniform", name="habitual_dense_2"),
+                tf.keras.layers.Dense(cfg.action_dim, name="habitual_dense_out"),
+            ],
+            name="habitual_sequential",
         )  # No activation
 
     def predict_action(self, state):

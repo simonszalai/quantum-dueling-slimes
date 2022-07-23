@@ -9,7 +9,7 @@ node_id = 0
 
 
 class MCTS:
-    def __init__(self, model, C=0.5, threshold=0.25, repeats=10, simulation_repeats=1, simulation_depth=3, use_habit=False):
+    def __init__(self, model, C=0.5, threshold=0.25, repeats=100, simulation_repeats=1, simulation_depth=3, use_habit=True):
         self.model = model
         self.C = C  # Higher value increases probability of choosing less explored actions
         self.threshold = threshold
@@ -118,14 +118,14 @@ class MCTS:
 
         states_explored_in_sim = 0
         # Repeat and average G over 'simulation_repeats' times
-        simulation_G_values = tf.zeros(self.simulation_repeats, cfg.tf_precision)
+        simulation_G_values = tf.TensorArray(cfg.tf_precision, size=0, dynamic_size=True, clear_after_read=False)
         for sim_repeat in range(self.simulation_repeats):
             states_explored_in_sim += self.simulation_depth
 
             # Get the mean of Gs for each step down in the tree to simulation_depth (based on the agent's internal model)
             G = self.model.mcts_step_simulate(start_state, self.simulation_depth)
-            simulation_G_values[sim_repeat] = G
+            simulation_G_values = simulation_G_values.write(sim_repeat, G)
 
-        simulation_G_mean = simulation_G_values.mean()
+        simulation_G_mean = tf.reduce_mean(simulation_G_values.stack())
 
         return simulation_G_mean, states_explored_in_sim
