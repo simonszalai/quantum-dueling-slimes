@@ -10,6 +10,7 @@ import tensorflow as tf
 from pathlib import Path
 from datetime import datetime
 
+import src.utils as utils
 import src.train.config as cfg
 from src.train.config import gamma_rate, gamma_max, gamma_delay
 from src.train.metrics import TENSORBOARD
@@ -40,8 +41,8 @@ parser.add_argument("-b", "--batch", type=int, default=1, help="Select batch siz
 args = parser.parse_args()
 
 # Set folder names for saving training logs, then create them if they don't exist
-training_base_path = Path(args.path) if args.path else Path("training_files")
-training_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+training_base_path = Path("training_files")
+training_id = Path(args.path) if args.path else datetime.now().strftime("%Y%m%d-%H%M%S")
 training_run_path = training_base_path / training_id
 os.makedirs(training_run_path, exist_ok=True)
 
@@ -72,29 +73,31 @@ for epoch in range(0, args.epochs + 1):
         model.encoder_net.gamma.assign(model.encoder_net.gamma + gamma_rate)
 
     # Start new epoch (new game in SlimeVolley)
-    obs_agent, obs_opponent, round_, done, total_reward = init_epoch(env, logger)
+    obs_0_agent, obs_0_opponent, round_, done, total_reward = init_epoch(env, logger)
 
     while not done:
         print(f"Round {round_} of epoch {epoch}\r", end="")
         round_ += 1
 
         # Get action of the agent
-        action_agent, train_info = model.predict_agent_action_train(obs_agent)
-        action_index, P_action, agent_action_onehot = train_info
+        action_agent_index, P_action = model.predict_agent_action_train(obs_0_agent)
+        action_agent_onehot = utils.action_to_onehot(action_agent_index)  # For training
+        action_agent_multihot = utils.action_to_multi_hot(action_agent_index)  # For the environment
 
         # Get action of the opponent
-        action_opponent = policy.predict(obs_opponent)
-
-        # Train model
-        model.train(obs_agent, train_info, step=epoch * args.epochs + round_)
+        action_opponent = policy.predict(obs_0_opponent)
 
         # Apply actions to the environment. Action format: multi-hot [forward, backward, jump]
-        obs_agent, reward, done, info = env.step(action_agent, action_opponent)
-        obs_agent = obs_agent.astype(cfg.np_precision)
+        obs_1_agent, reward, done, info = env.step(action_agent_multihot, action_opponent)
+        obs_1_agent = np.expand_dims(obs_1_agent.astype(cfg.np_precision), axis=0)
+
+        # Train model
+        step = epoch * args.epochs + round_
+        model.train(obs_0_agent, obs_1_agent, action_agent_onehot, P_action, step=step)
 
         # Update/format observations for next round
-        obs_opponent = info["otherObs"]
-        obs_agent = np.expand_dims(obs_agent, axis=0)  # Keras layers requires a dimension for batches even if it equals to 1
+        obs_0_agent = obs_1_agent
+        obs_0_opponent = info["otherObs"]
 
         if args.render:
             env.render()

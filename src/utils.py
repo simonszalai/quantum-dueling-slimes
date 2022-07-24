@@ -1,8 +1,8 @@
 import numpy as np
 import tensorflow as tf
-from src.train.config import np_precision
+import src.train.config as cfg
 
-eps = np.finfo(np_precision).eps * 10
+eps = np.finfo(cfg.np_precision).eps * 10
 
 
 def stable_tf_log(x):
@@ -13,8 +13,25 @@ def stable_np_log(x):
     return np.log(x + eps)
 
 
-def D_KL_from_logvar_and_precision(mu1, logvar1, mu2, logvar2, omega):
-    D_KL = 0.5 * (logvar2 - stable_tf_log(omega) - logvar1) + (tf.exp(logvar1) + tf.math.square(mu1 - mu2)) / (2.0 * tf.exp(logvar2) / omega) - 0.5
+@tf.function
+def reparameterize(mean, logvar):
+    """
+    Essential to make backpropagation possible despite the fact that random sampling occurs
+    """
+    eps = tf.random.normal(shape=mean.shape)
+    std = tf.exp(logvar * 0.5)
+    return eps * std + mean
+
+
+def D_KL_from_logvar_and_precision(state_1_mean, state_1_logvar, state_2_mean, state_2_logvar, omega):
+    """
+    Computes the difference between two distributions
+    """
+    D_KL = (
+        0.5 * (state_2_logvar - stable_tf_log(omega) - state_1_logvar)
+        + (tf.exp(state_1_logvar) + tf.math.square(state_1_mean - state_2_mean)) / (2.0 * tf.exp(state_2_logvar) / omega)
+        - 0.5
+    )
     return tf.reduce_sum(D_KL, 1)
 
 
@@ -73,7 +90,7 @@ def compute_omega(loss_habitual, omega_params):
     return a * (1.0 - 1.0 / (1.0 + np.exp(-(loss_habitual.numpy() - b) / c))) + d
 
 
-def action_to_multi_hot(action_index, dtype):
+def action_to_multi_hot(action_index):
     # Possible actions for slimevolley:
     #   0: nothing
     #   1: forward
@@ -98,4 +115,12 @@ def action_to_multi_hot(action_index, dtype):
     if action_index in [2, 4, 5]:
         multi_hot_action[2] = 1
 
-    return tf.convert_to_tensor(multi_hot_action, dtype=dtype)
+    return tf.convert_to_tensor(multi_hot_action, dtype=cfg.np_precision)
+
+
+def action_to_onehot(action_index):
+    # Convert action index to one-hot encoding (for network training)
+    action_onehot = np.zeros((1, cfg.action_dim), dtype=cfg.np_precision)
+    action_onehot[0, action_index] = 1.0
+
+    return action_onehot

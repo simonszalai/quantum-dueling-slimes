@@ -8,6 +8,7 @@ import numpy as np
 import tensorflow as tf
 from pathlib import Path
 
+import src.utils as utils
 from src.model.mcts import MCTS
 from src.model.active_inference import ActiveInferenceModel
 
@@ -82,10 +83,12 @@ done = False
 
 
 while not done:
-    action_agent = model.predict_agent_action_inf(obs_agent)
+    action_agent_index, _ = model.predict_agent_action_train(obs_agent)
+    action_agent_multihot = utils.action_to_multi_hot(action_agent_index)
+
     action_opponent = policy.predict(obs_opponent)
 
-    obs_agent, reward, done, info = env.step(action_agent, action_opponent)
+    obs_agent, reward, done, info = env.step(action_agent_multihot, action_opponent)
 
     obs_opponent = info["otherObs"]
     obs_agent = np.expand_dims(obs_agent, axis=0)  # Keras layers requires a dimension for batches even if it equals to 1

@@ -1,12 +1,15 @@
 import tensorflow as tf
 
+import src.utils as utils
 import src.train.config as cfg
-from src.utils import D_KL_from_logvar_and_precision, stable_tf_log
 
 
 class EncoderNetwork(tf.keras.Model):
     """
-    Network to encode and decode state from/to observations
+    A Variational Autoencoder to encode and decode state from/to observations
+    Short explanation: https://github.com/bvezilic/Variational-autoencoder
+    Longer explanation: https://towardsdatascience.com/understanding-variational-autoencoders-vaes-f70510919f73
+
     """
 
     def __init__(self):
@@ -20,35 +23,44 @@ class EncoderNetwork(tf.keras.Model):
         self.encoder_model = tf.keras.Sequential(
             [
                 tf.keras.layers.InputLayer(input_shape=(cfg.state_dim)),
-                tf.keras.layers.Dense(16, activation=tf.keras.activations.linear, kernel_initializer="identity"),
+                tf.keras.layers.Dense(128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(cfg.state_dim + cfg.state_dim, activation=tf.keras.activations.linear, kernel_initializer="identity"),
+                tf.keras.layers.Dense(128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dropout(0.5),
+                tf.keras.layers.Dense(128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dropout(0.5),
+                tf.keras.layers.Dense(cfg.state_dim + cfg.state_dim),
             ]
         )  # No activation
 
         self.decoder_model = tf.keras.Sequential(
             [
                 tf.keras.layers.InputLayer(input_shape=(cfg.state_dim,)),
-                tf.keras.layers.Dense(16, activation=tf.keras.activations.linear, kernel_initializer="identity"),
+                tf.keras.layers.Dense(128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(cfg.state_dim, activation=tf.keras.activations.linear, kernel_initializer="identity"),
+                tf.keras.layers.Dense(128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dropout(0.5),
+                tf.keras.layers.Dense(128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dropout(0.5),
+                tf.keras.layers.Dense(cfg.state_dim, activation="sigmoid", kernel_initializer="he_uniform"),
             ]
         )
 
     @tf.function
-    def reparameterize(self, mean, logvar):
-        eps = tf.random.normal(shape=mean.shape)
-        return eps * tf.exp(logvar * 0.5) + mean
-
-    @tf.function
     def encode(self, obs):
         """
-        Encode observation as low-dimensional state
+        Encode observation as low-dimensional state, then reparameterize
+        logvar: log variance
+
+        Returns
+        -------
+        state : np.array
         """
 
         network_out = self.encoder_model(obs)
-        mean_state, logvar_state = tf.split(network_out, num_or_size_splits=2, axis=1)
-        return mean_state, logvar_state
+        state_mean, state_logvar = tf.split(network_out, num_or_size_splits=2, axis=1)
+        state = utils.reparameterize(state_mean, state_logvar)
+        return state, state_mean, state_logvar
 
     @tf.function
     def decode(self, state):
@@ -56,31 +68,22 @@ class EncoderNetwork(tf.keras.Model):
         return pred_obs
 
     @tf.function
-    def encode_with_sample(self, obs):
-        """
-        Encode observation as low-dimensional state, then reparameterize
-        """
-        mean, logvar = self.encode(obs)
-        state = self.reparameterize(mean, logvar)
-        return state, mean, logvar
-
-    @tf.function
-    def compute_loss(self, obs_1, pred_state_1_mean, pred_state_1_logvar, omega):
-        # Encode the actual observation
-        actual_state_1, actual_state_1_mean, actual_state_1_logvar = self.encode_with_sample(obs_1)
+    def compute_loss(self, obs, pred_state_mean, pred_state_logvar, omega):
+        # Encode the actual observation TODO: possible optimization, reuse obs -> state computed in active_inference.py:292
+        actual_state_1, actual_state_1_mean, actual_state_1_logvar = self.encode(obs)
 
         # Decode the encoded state back to observation
         pred_obs_1 = self.decode(actual_state_1)
 
         # TERM: Eq[log P(o1|s1)]
-        bin_cross_entr = obs_1 * stable_tf_log(pred_obs_1) + (1 - obs_1) * stable_tf_log(1 - pred_obs_1)  # Binary Cross Entropy
+        bin_cross_entr = obs * utils.stable_tf_log(pred_obs_1) + (1 - obs) * utils.stable_tf_log(1 - pred_obs_1)  # Binary Cross Entropy
         log_pred_obs_1_state_1 = tf.reduce_sum(bin_cross_entr, axis=[1])
 
         # TERM: Eqpi D_kl[Q(s1)||N(0.0,1.0)]
-        D_KL_naive = D_KL_from_logvar_and_precision(actual_state_1_mean, actual_state_1_logvar, 0.0, 0.0, omega)
+        D_KL_naive = utils.D_KL_from_logvar_and_precision(actual_state_1_mean, actual_state_1_logvar, 0.0, 0.0, omega)
 
         # TERM: Eqpi D_kl[Q(s1)||P(s1|s0,pi)]
-        D_KL = D_KL_from_logvar_and_precision(actual_state_1_mean, actual_state_1_logvar, pred_state_1_mean, pred_state_1_logvar, omega)
+        D_KL = utils.D_KL_from_logvar_and_precision(actual_state_1_mean, actual_state_1_logvar, pred_state_mean, pred_state_logvar, omega)
 
         # Beginning of training (only use D_KL_naive)
         if self.gamma <= 0.05:
@@ -95,9 +98,9 @@ class EncoderNetwork(tf.keras.Model):
         return loss
 
     @tf.function
-    def train(self, obs_1, pred_state_1_mean, pred_state_1_logvar, omega):
+    def train(self, obs, pred_state_mean, pred_state_logvar, omega):
         with tf.GradientTape() as tape:
-            loss = self.compute_loss(obs_1, tf.stop_gradient(pred_state_1_mean), tf.stop_gradient(pred_state_1_logvar), omega=tf.stop_gradient(omega))
+            loss = self.compute_loss(obs, tf.stop_gradient(pred_state_mean), tf.stop_gradient(pred_state_logvar), omega=tf.stop_gradient(omega))
             gradients = tape.gradient(loss, self.trainable_variables)
             self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
 

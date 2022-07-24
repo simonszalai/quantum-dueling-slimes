@@ -9,7 +9,7 @@ node_id = 0
 
 
 class MCTS:
-    def __init__(self, model, C=0.5, threshold=0.25, repeats=10, simulation_repeats=1, simulation_depth=3, use_habit=False):
+    def __init__(self, model, C=0.1, threshold=0.5, repeats=300, simulation_repeats=1, simulation_depth=3, use_habit=True):
         self.model = model
         self.C = C  # Higher value increases probability of choosing less explored actions
         self.threshold = threshold
@@ -32,7 +32,7 @@ class MCTS:
             return [0]
 
         # Predict current state from observation
-        state_0_mean, _ = self.model.encoder_net.encode(obs)
+        _, state_0_mean, _ = self.model.encoder_net.encode(obs)
 
         # Important to use the mean here as we repeat it cfg.action_dim times
         root_node = Node(state=state_0_mean[0], model=self.model, C=self.C, using_prior_for_exploration=self.using_prior_for_exploration)

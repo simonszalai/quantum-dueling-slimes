@@ -1,14 +1,10 @@
 import tensorflow as tf
 
+import src.utils as utils
 import src.train.config as cfg
-from src.utils import D_KL_from_logvar_and_precision
 
 
 class TransitionNetwork(tf.keras.Model):
-    """
-    Transition function (B)
-    """
-
     def __init__(self):
         super(TransitionNetwork, self).__init__()
 
@@ -16,20 +12,15 @@ class TransitionNetwork(tf.keras.Model):
         self.model = tf.keras.Sequential(
             [
                 tf.keras.layers.InputLayer(input_shape=(cfg.action_dim + cfg.state_dim,)),
-                tf.keras.layers.Dense(units=32, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(units=128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(units=32, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(units=128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(units=32, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(units=128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
                 tf.keras.layers.Dense(cfg.state_dim + cfg.state_dim),
             ]
         )  # No activation
-
-    @tf.function
-    def reparameterize(self, mean, logvar):
-        eps = tf.random.normal(shape=mean.shape)
-        return eps * tf.exp(logvar * 0.5) + mean
 
     @tf.function
     def transition(self, action, state):
@@ -46,8 +37,8 @@ class TransitionNetwork(tf.keras.Model):
 
         net_input = tf.concat([action, state], axis=1)
         net_output = self.model(net_input)
-        mean, logvar = tf.split(net_output, num_or_size_splits=2, axis=1)
-        return mean, logvar
+        next_state_mean, next_state_logvar = tf.split(net_output, num_or_size_splits=2, axis=1)
+        return next_state_mean, next_state_logvar
 
     @tf.function
     def transition_with_sample(self, state, action):
@@ -67,18 +58,18 @@ class TransitionNetwork(tf.keras.Model):
         except (tf.errors.InvalidArgumentError, ValueError):
             pass
 
-        pred_state_1_mean, pred_state_1_logvar = self.transition(action, state)
-        pred_state_1 = self.reparameterize(pred_state_1_mean, pred_state_1_logvar)
-        return pred_state_1, pred_state_1_mean, pred_state_1_logvar
+        next_state_mean, next_state_logvar = self.transition(action, state)
+        next_state = utils.reparameterize(next_state_mean, next_state_logvar)
+        return next_state, next_state_mean, next_state_logvar
 
     @tf.function
-    def compute_loss(self, pred_state_1_mean, pred_state_1_logvar, actual_state_1_mean, actual_state_1_logvar, omega):
+    def compute_loss(self, actual_state_1_mean, actual_state_1_logvar, pred_state_1_mean, pred_state_1_logvar, omega):
         # TERM: Eqpi D_kl[Q(s1)||P(s1|s0,pi)]
-        loss = D_KL_from_logvar_and_precision(actual_state_1_mean, actual_state_1_logvar, pred_state_1_mean, pred_state_1_logvar, omega)
+        loss = utils.D_KL_from_logvar_and_precision(actual_state_1_mean, actual_state_1_logvar, pred_state_1_mean, pred_state_1_logvar, omega)
         return loss
 
     @tf.function
-    def train(self, state_0, action_0, state_1_mean, state_1_logvar, omega):
+    def train(self, state_0, action_0, actual_state_1_mean, actual_state_1_logvar, omega):
         """
         Parameters
         ----------
@@ -86,14 +77,14 @@ class TransitionNetwork(tf.keras.Model):
             Mean and logvar of the actual next state, encoded from the observation returned by the environment.
         """
         with tf.GradientTape() as tape:
-            # Predict the next state from current state and applied action (use the agent's model of the environment)
+            # Predict the next state from current state and applied action (use the agent's internal model)
             _, pred_state_1_mean, pred_state_1_logvar = self.transition_with_sample(tf.stop_gradient(state_0), tf.stop_gradient(action_0))
 
             loss = self.compute_loss(
+                actual_state_1_mean=tf.stop_gradient(actual_state_1_mean),
+                actual_state_1_logvar=tf.stop_gradient(actual_state_1_logvar),
                 pred_state_1_mean=pred_state_1_mean,
                 pred_state_1_logvar=pred_state_1_logvar,
-                actual_state_1_mean=tf.stop_gradient(state_1_mean),
-                actual_state_1_logvar=tf.stop_gradient(state_1_logvar),
                 omega=tf.stop_gradient(omega),
             )
             gradients = tape.gradient(loss, self.trainable_variables)

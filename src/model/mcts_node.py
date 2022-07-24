@@ -9,7 +9,7 @@ node_id = 0
 
 
 class Node:
-    def __init__(self, state, model, C, verbose=False, using_prior_for_exploration=False):
+    def __init__(self, state, model, C, verbose=False, using_prior_for_exploration=True):
         global node_id
 
         # The latent state that corresponds to this node NOTE: The same state is saved cfg.action_dim times to enable calculation of G as a batch
@@ -51,7 +51,7 @@ class Node:
 
         average_free_energy_of_actions = self.total_free_energy / self.exploration_counts_of_actions
         average_free_energy_of_actions -= average_free_energy_of_actions.min()
-        average_free_energy_of_actions = average_free_energy_of_actions / average_free_energy_of_actions.sum()
+        average_free_energy_of_actions /= average_free_energy_of_actions.sum()
 
         return average_free_energy_of_actions
 

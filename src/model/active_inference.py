@@ -8,14 +8,14 @@ from src.model.transition_network import TransitionNetwork
 from src.model.encoder_network import EncoderNetwork
 from src.model.mcts import MCTS
 from src.train.metrics import TENSORBOARD
+from src.utils import stable_tf_log
 
 
 class ActiveInferenceModel:
     def __init__(self, training_run_path=None):
         self.omega = tf.Variable(1.0, trainable=False, name="omega")
 
-        self.tf_precision = f"float{np.finfo(cfg.np_precision).bits}"
-        tf.keras.backend.set_floatx(self.tf_precision)
+        tf.keras.backend.set_floatx(f"float{np.finfo(cfg.np_precision).bits}")
 
         self.habitual_net = HabitualNetwork()
         self.transition_net = TransitionNetwork()
@@ -84,31 +84,34 @@ class ActiveInferenceModel:
             # Here higher reward == incentive, lower reward == penalty
             reward = 0.0
 
-            # 1. If the ball is moving towards the agent, agent should get closer to the ball
-            # Vx_ball > 0: moving towards the agent's half (to the right)
-            if Vx_ball > 0:
-                agent_ball_dist = get_agent_ball_dist(x_ball, y_ball, x_agent, y_agent)
-                # Penalize distance between agent and ball
-                reward -= agent_ball_dist
+            reward -= 100 * -x_agent
 
-            # 2. Reward for the ball moving towards the opponents half
-            reward += Vx_ball
+            # # 1. If the ball is moving towards the agent, agent should get closer to the ball
+            # # Vx_ball > 0: moving towards the agent's half (to the right)
+            # agent_ball_dist = 0.0
+            # if Vx_ball > 0:
+            #     agent_ball_dist = get_agent_ball_dist(x_ball, y_ball, x_agent, y_agent)
+            # # Penalize distance between agent and ball
+            # reward -= agent_ball_dist
 
-            # 3. On the agent's side, reward if the ball is higher
-            if x_ball > 0:
-                reward += y_ball
+            # # 2. Reward for the ball moving towards the opponents half
+            # reward += Vx_ball
 
-            # 4. On the opponent's side, penalize if the ball is higher
-            if x_ball < 0:
-                reward -= y_ball
+            # # 3. On the agent's side, reward if the ball is higher
+            # if x_ball > 0:
+            #     reward += y_ball
 
-            # 5. On the agent's side, big penalty if the ball touches the ground
-            if x_ball > 0 and y_ball <= 0.25:
-                reward -= 1000
+            # # 4. On the opponent's side, penalize if the ball is higher
+            # if x_ball < 0:
+            #     reward -= y_ball
 
-            # 6. On the opponent's side, big reward if the ball touches the ground
-            if x_ball < 0 and y_ball <= 0.25:
-                reward += 1000
+            # # 5. On the agent's side, big penalty if the ball touches the ground
+            # if x_ball > 0 and y_ball <= 0.25:
+            #     reward -= 1000
+
+            # # 6. On the opponent's side, big reward if the ball touches the ground
+            # if x_ball < 0 and y_ball <= 0.25:
+            #     reward += 1000
 
             # Swap the sign of the reward => smaller reward is better
             results = results.write(i, -1 * reward)
@@ -117,7 +120,7 @@ class ActiveInferenceModel:
 
     @tf.function
     def habitual_network(self, obs):
-        pred_state_mean, _ = self.encoder_net.encode(obs)
+        _, pred_state_mean, _ = self.encoder_net.encode(obs)
         Q_action = self.habitual_net.predict_action(pred_state_mean)
         return Q_action
 
@@ -144,7 +147,7 @@ class ActiveInferenceModel:
         for _ in range(average_G_over_N_samples):
             pred_state_1, pred_state_1_mean, pred_state_1_logvar = self.transition_net.transition_with_sample(states, actions)
             pred_obs_1 = self.encoder_net.decode(pred_state_1)
-            _, _, encoded_pred_state_1_logvar = self.encoder_net.encode_with_sample(pred_obs_1)
+            _, _, encoded_pred_state_1_logvar = self.encoder_net.encode(pred_obs_1)
 
             # E [ log P(o|pi) ]
             log_pred_obs_1 = self.check_reward(pred_obs_1)
@@ -182,32 +185,38 @@ class ActiveInferenceModel:
         return G, pred_state_1, pred_state_1_mean
 
     @tf.function
-    def calculate_G_repeated(self, obs, action, steps=1, calc_mean=False, average_G_over_N_samples=10):
+    def calculate_G_repeated(self, obs, actions, steps=1, calc_mean=False, average_G_over_N_samples=1):
         """
-        We simultaneously calculate G for the policies of repeating each
-        one of the four actions continuously.
-        """
-        # Calculate current s_t
-        encoded_state_0_mean, encoded_state_0_logvar = self.encoder_net.encode(obs)
-        encoded_state_0 = self.encoder_net.reparameterize(encoded_state_0_mean, encoded_state_0_logvar)
+        First encodes the starting observation to the starting state, calculates G for it given the passed action(s),
+        then predicts the next state, calculates G from that state using the same action(s), repeating this 'steps' times
 
+        Parameters
+        ----------
+        obs : np.array
+            Observation of the agent before the passed actions are taken (will be encoded to state)
+        actions : np.array
+            Array of actions to compute G for
+        steps : 1
+            Number of times each actions should be repeated
+        calc_mean : bool
+            Whether expected free energy should be calculated using the mean instead of sampling
+        average_G_over_N_samples : int
+            Number of times the computation should be repeated then averaged over
+        """
+
+        # Predict current state given the passed observation
+        state, state_mean, _ = self.encoder_net.encode(obs)
+
+        # Init a register for G
         sum_G = tf.zeros([obs.shape[0]], cfg.np_precision)
 
-        # Predict s_t+1 for various policies
-        if calc_mean:
-            s0_temp = encoded_state_0_mean
-        else:
-            s0_temp = encoded_state_0
+        # Predict state_t+1
+        s0_temp = state_mean if calc_mean else state
 
         for t in range(steps):
-            G, pred_state_1, pred_state_1_mean = self.calculate_G(s0_temp, action, average_G_over_N_samples=average_G_over_N_samples)
-
+            G, next_state, next_state_mean = self.calculate_G(s0_temp, actions, average_G_over_N_samples=average_G_over_N_samples)
             sum_G += G
-
-            if calc_mean:
-                s0_temp = pred_state_1_mean
-            else:
-                s0_temp = pred_state_1
+            s0_temp = next_state_mean if calc_mean else next_state
 
         return sum_G
 
@@ -216,7 +225,7 @@ class ActiveInferenceModel:
         # NOTE: len(s0_traj) = len(s1_traj) = len(pi0_traj)
 
         pred_obs = self.encoder_net.decode(pred_state_traj)
-        _, _, pred_state_logvar = self.encoder_net.encode_with_sample(pred_obs)
+        _, _, pred_state_logvar = self.encoder_net.encode(pred_obs)
 
         # E [ log P(o|pi) ]
         term0 = self.check_reward(pred_obs)
@@ -229,7 +238,7 @@ class ActiveInferenceModel:
         term2_1 = tf.reduce_sum(utils.entropy_gaussian(pred_obs_temp1), axis=[1])
 
         # Term 2.2: Sampling different s with the same theta, i.e. just the reparameterization trick
-        pred_obs_temp2 = self.encoder_net.decode(self.transition_net.reparameterize(pred_state_mean_traj, pred_state_logvar_traj))
+        pred_obs_temp2 = self.encoder_net.decode(utils.reparameterize(pred_state_mean_traj, pred_state_logvar_traj))
         term2_2 = tf.reduce_sum(utils.entropy_gaussian(pred_obs_temp2), axis=[1])
 
         # E [ log [ H(o|s,th,pi) ] - E [ H(o|s,pi) ]
@@ -238,68 +247,58 @@ class ActiveInferenceModel:
         return -term0 + term1 + term2
 
     def predict_agent_action_train(self, obs):
-        # TRSTEP 3 Run planner and compute prior policy P (at)
-        # TRSTEP 3.a Define shape of action space
+        # Repeat observation for each possible action
         # This will result in one predicted observation for each possible action so the lowest G can be calculated then the right action selected
-        dummy_action_onehot = tf.eye(cfg.action_dim, dtype=cfg.np_precision)  # Shape: (action_counts, action_counts), e.g. (3, 3)
+        obs_repeated = obs.repeat(cfg.action_dim, axis=0)
+        all_actions = tf.eye(cfg.action_dim, dtype=cfg.np_precision)  # Shape: (action_counts, action_counts), e.g. (3, 3)
 
-        # TRSTEP 3.b Compute Expected Free Energy
-        # samples: average G over N samples
-        o0_repeated = obs.repeat(cfg.action_dim, 0)
+        # Calculate a G value from the current observation for each possible action
+        sum_G = self.calculate_G_repeated(obs_repeated, all_actions, steps=cfg.calc_G_steps_ahead, average_G_over_N_samples=cfg.average_G_over_N_samples)
 
-        sum_G = self.calculate_G_repeated(
-            o0_repeated, dummy_action_onehot, steps=cfg.calc_G_steps_ahead, average_G_over_N_samples=cfg.average_G_over_N_samples
-        )  # Shape (batch * action_counts,), e.g. (3,)
-        # TRSTEP 3.c Compute prior policy (probability distribution over actions)
+        # Compute probability distribution of actions from G (smaller G -> bigger chance for action to be selected)
         P_action, _ = utils.softmax_multi_with_log(-sum_G.numpy(), cfg.action_dim)  # Shape: (batch, action_dim), e.g. (1, 3)
 
-        # TRSTEP 9 Apply action a ̃ ∼ P (a ) to the environment.
-        # TRSTEP 9.a Sample prior policy (action probability distributions)
+        # Sample an action from the probabilty distribution of actions
         action_index = np.random.choice(cfg.action_dim, p=P_action.squeeze(axis=0))
 
-        # Convert action choices to multi-hot (for environment)
-        action_agent = utils.action_to_multi_hot(action_index, dtype=self.tf_precision)
-
-        # Convert action index to one-hot (for network training)
-        agent_action_onehot = np.zeros((1, cfg.action_dim), dtype=cfg.np_precision)
-        agent_action_onehot[0, action_index] = 1.0
-
-        return action_agent, [action_index, P_action, agent_action_onehot]
+        return action_index, P_action
 
     def predict_agent_action_inf(self, obs):
         action_agent = self.mcts.active_inference_mcts(obs)
 
         # Convert action choices to multi-hot (for environment)
-        action_agent = utils.action_to_multi_hot(action_agent, dtype=cfg.tf_precision)
+        action_agent = utils.action_to_multi_hot(action_agent)
 
         return action_agent
 
-    def train(self, obs_agent, train_info, step):
-        _, P_action, agent_action_onehot = train_info
+    def train(self, obs_0, obs_1, action_onehot, P_action, step):
+        """
+        Parameters
+        ----------
+        P_action : np.array
+            Probability distribution over actions as predicted by the agent's internal model
+        """
 
         # -- TRAIN HABITUAL NETWORK ---------------------------------------------------
-        # 4. Compute Qφs (st) using o ̃t.
-        state_0, _, _ = self.encoder_net.encode_with_sample(obs_agent)
+        state_0, _, _ = self.encoder_net.encode(obs_0)
 
         loss_habitual = self.habitual_net.train(state_0, P_action)
         TENSORBOARD.loss_habitual(loss_habitual)
 
-        # -- TRAIN TRANSITION NETWORK ------------------------------------------------
-        # 11. Compute Qφs (st+1 ) using o ̃t+1 .
-        state_1_mean, state_1_logvar = self.encoder_net.encode(obs_agent)
-        loss_transition, pred_state_1_mean, pred_state_1_logvar = self.transition_net.train(
-            state_0, agent_action_onehot, state_1_mean=state_1_mean, state_1_logvar=state_1_logvar, omega=self.omega
-        )
-        TENSORBOARD.loss_transition(loss_transition)
-
+        # Update omega value
         current_omega = utils.compute_omega(loss_habitual, omega_params=cfg.omega_params).reshape(-1, 1)
         self.omega.assign(tf.reduce_mean(current_omega))
         TENSORBOARD.omega(self.omega)
 
-        # -- TRAIN ENCODER NETWORK --------------------------------------------------
-        loss_encoder = self.encoder_net.train(
-            obs_1=obs_agent, pred_state_1_mean=pred_state_1_mean, pred_state_1_logvar=pred_state_1_logvar, omega=current_omega
+        # -- TRAIN TRANSITION NETWORK ------------------------------------------------
+        _, state_1_mean, state_1_logvar = self.encoder_net.encode(obs_1)
+        loss_transition, pred_state_1_mean, pred_state_1_logvar = self.transition_net.train(
+            state_0, action_onehot, actual_state_1_mean=state_1_mean, actual_state_1_logvar=state_1_logvar, omega=self.omega
         )
+        TENSORBOARD.loss_transition(loss_transition)
+
+        # -- TRAIN ENCODER NETWORK --------------------------------------------------
+        loss_encoder = self.encoder_net.train(obs=obs_1, pred_state_mean=pred_state_1_mean, pred_state_logvar=pred_state_1_logvar, omega=current_omega)
         TENSORBOARD.loss_encoder(loss_encoder)
         TENSORBOARD.gamma(self.encoder_net.gamma)
 

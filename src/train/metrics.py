@@ -21,8 +21,8 @@ class Tensorboard:
 
     def write_all_metrics(self, step):
         # Let metrics stabilize in the beginning
-        if step < 50:
-            return
+        # if step < 50:
+        #     return
 
         with self.writer.as_default():
             for metric in self.metrics:

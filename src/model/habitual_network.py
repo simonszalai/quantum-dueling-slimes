@@ -17,8 +17,8 @@ class HabitualNetwork(tf.keras.Model):
         self.model = tf.keras.Sequential(
             [
                 tf.keras.layers.InputLayer(input_shape=(cfg.state_dim,)),
-                tf.keras.layers.Dense(units=16, activation=tf.nn.relu, kernel_initializer="he_uniform"),
-                tf.keras.layers.Dense(units=16, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(units=128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(units=128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dense(cfg.action_dim),
             ]
         )  # No activation
@@ -35,21 +35,24 @@ class HabitualNetwork(tf.keras.Model):
         return Q_action
 
     @tf.function
-    def compute_loss(self, state, P_action):
+    def compute_loss(self, state, P_action_internal):
         """
+        The habitual network learns to imitate the action selections of the agent's internal model,
+        so it can be used as a perf optimization
+
         Parameters
         ----------
         state : np.array
             Observation encoded as a lower dimensional state by the encoder network
-        log_P_action: np.array
-            Probabilities of each action to be selected based on calculated Expected Free Energy
+        P_action_internal: np.array
+            Probability distribution of actions predicted by the agent's internal model (encoder + transition networks)
         """
 
-        # Q_action: probability of each action selected given a state
-        Q_action = self.predict_action(state)
+        # Probability distribution of actions predicted by the habitual network
+        P_action_habitual = self.predict_action(state)
 
-        # Calculate Kullback-Leibler Divergence
-        D_KL_action = Q_action * (stable_tf_log(Q_action) - stable_tf_log(P_action))
+        # Calculate Kullback-Leibler Divergence between the output of the habitual network and the agent's internal model
+        D_KL_action = P_action_habitual * (stable_tf_log(P_action_habitual) - stable_tf_log(P_action_internal))
 
         # Sum up KL divergence to get loss
         loss = tf.reduce_sum(D_KL_action, 1)
@@ -68,7 +71,7 @@ class HabitualNetwork(tf.keras.Model):
         """
 
         with tf.GradientTape() as tape:
-            loss = self.compute_loss(state=tf.stop_gradient(state), P_action=tf.stop_gradient(P_action))
+            loss = self.compute_loss(state=tf.stop_gradient(state), P_action_internal=tf.stop_gradient(P_action))
             gradients = tape.gradient(loss, self.trainable_variables)
             self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
 

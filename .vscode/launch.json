@@ -13,6 +13,16 @@
       "args": ["-n", "training_files/reward_x_agent/saved_models/epoch_125"],
       "justMyCode": true,
       "python": "/Users/simon/dev/quantum-dueling-slimes/.venv/bin/python"
+    },
+    {
+      "name": "Python: Training",
+      "type": "python",
+      "request": "launch",
+      "program": "src/train/train.py",
+      "console": "integratedTerminal",
+      "args": ["-p", "test"],
+      "justMyCode": true,
+      "python": "/Users/simon/dev/quantum-dueling-slimes/.venv/bin/python"
     }
   ]
 }
