@@ -75,8 +75,8 @@ class EncoderNetwork(tf.keras.Model):
         # Decode the encoded state back to observation
         pred_obs_1 = self.decode(actual_state_1)
 
-        # TERM: Eq[log P(o1|s1)]
-        bin_cross_entr = obs * utils.stable_tf_log(pred_obs_1) + (1 - obs) * utils.stable_tf_log(1 - pred_obs_1)  # Binary Cross Entropy
+        # TERM: Eq[log P(o1|s1)] -> Binary Cross Entropy
+        bin_cross_entr = obs * utils.stable_tf_log(pred_obs_1) + (1 - obs) * utils.stable_tf_log(1 - pred_obs_1)
         log_pred_obs_1_state_1 = tf.reduce_sum(bin_cross_entr, axis=[1])
 
         # TERM: Eqpi D_kl[Q(s1)||N(0.0,1.0)]

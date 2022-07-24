@@ -13,6 +13,7 @@ from src.model.mcts import MCTS
 from src.model.active_inference import ActiveInferenceModel
 
 
+np.set_printoptions(threshold=1000)
 tf.config.run_functions_eagerly(True)
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"

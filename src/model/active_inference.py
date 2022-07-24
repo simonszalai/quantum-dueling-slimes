@@ -82,17 +82,17 @@ class ActiveInferenceModel:
             # We encode reward as expected outcome which is inversely proportional to the probability of the target observation given the ideal input policy
 
             # Here higher reward == incentive, lower reward == penalty
-            reward = 0.0
+            penalty = 0.0
 
-            reward -= 100 * -x_agent
+            # penalty -= 1000 * -x_agent
 
             # # 1. If the ball is moving towards the agent, agent should get closer to the ball
             # # Vx_ball > 0: moving towards the agent's half (to the right)
-            # agent_ball_dist = 0.0
-            # if Vx_ball > 0:
-            #     agent_ball_dist = get_agent_ball_dist(x_ball, y_ball, x_agent, y_agent)
-            # # Penalize distance between agent and ball
-            # reward -= agent_ball_dist
+            agent_ball_dist = 0.0
+            if Vx_ball > 0:
+                agent_ball_dist = get_agent_ball_dist(x_ball, y_ball, x_agent, y_agent)
+            # Penalize distance between agent and ball
+            penalty += 1000 * agent_ball_dist
 
             # # 2. Reward for the ball moving towards the opponents half
             # reward += Vx_ball
@@ -114,9 +114,10 @@ class ActiveInferenceModel:
             #     reward += 1000
 
             # Swap the sign of the reward => smaller reward is better
-            results = results.write(i, -1 * reward)
+            results = results.write(i, penalty)
 
-        return results.stack()
+        stacked_results = results.stack()
+        return stacked_results
 
     @tf.function
     def habitual_network(self, obs):
@@ -125,17 +126,17 @@ class ActiveInferenceModel:
         return Q_action
 
     @tf.function
-    def calculate_G(self, states, actions, average_G_over_N_samples=1):
+    def calculate_G(self, states_0, actions, average_G_over_N_samples=1):
         """
         Calculates Expected Free Energy of a given action taken in a given state.
         Takes multiple states and actions and calculates G in a batch.
         """
 
         assert (
-            states.shape[0] == actions.shape[0]
-        ), f"Sample count in states batch ({states.shape[0]}) must equal sample count in actions batch ({actions.shape[0]}) when calculating G."
+            states_0.shape[0] == actions.shape[0]
+        ), f"Sample count in states batch ({states_0.shape[0]}) must equal sample count in actions batch ({actions.shape[0]}) when calculating G."
 
-        samples_in_batch = states.shape[0]
+        samples_in_batch = states_0.shape[0]
 
         # Create tensors in the right shape to accumulate the different terms of G (start with all zeros)
         term0 = tf.zeros([samples_in_batch], cfg.np_precision)
@@ -145,8 +146,8 @@ class ActiveInferenceModel:
 
         # Calculate G 'average_G_over_N_samples' times
         for _ in range(average_G_over_N_samples):
-            pred_state_1, pred_state_1_mean, pred_state_1_logvar = self.transition_net.transition_with_sample(states, actions)
-            pred_obs_1 = self.encoder_net.decode(pred_state_1)
+            pred_states_1, pred_states_1_mean, pred_states_1_logvar = self.transition_net.transition_with_sample(states_0, actions)
+            pred_obs_1 = self.encoder_net.decode(pred_states_1)
             _, _, encoded_pred_state_1_logvar = self.encoder_net.encode(pred_obs_1)
 
             # E [ log P(o|pi) ]
@@ -155,18 +156,18 @@ class ActiveInferenceModel:
 
             # E [ log Q(s|pi) - log Q(s|o,pi) ]
             term1_new = -tf.reduce_sum(
-                utils.entropy_normal_from_logvar(pred_state_1_logvar) + utils.entropy_normal_from_logvar(encoded_pred_state_1_logvar), axis=1
+                utils.entropy_normal_from_logvar(pred_states_1_logvar) + utils.entropy_normal_from_logvar(encoded_pred_state_1_logvar), axis=1
             )
             term1 += term1_new
 
             # Term 2.1: Sampling different thetas, i.e. sampling different ps_mean/logvar with dropout
-            pred_state_1_temp1, _, _ = self.transition_net.transition_with_sample(states, actions)
+            pred_state_1_temp1, _, _ = self.transition_net.transition_with_sample(states_0, actions)
             pred_obs_1_temp1 = self.encoder_net.decode(pred_state_1_temp1)
             term2_1_new = tf.reduce_sum(utils.entropy_gaussian(pred_obs_1_temp1), axis=[1])
             term2_1 += term2_1_new
 
             # Term 2.2: Sampling different s with the same theta, i.e. just the reparametrization trick
-            pred_obs_temp2 = self.encoder_net.decode(pred_state_1)
+            pred_obs_temp2 = self.encoder_net.decode(pred_states_1)
             term2_2_new = tf.reduce_sum(utils.entropy_gaussian(pred_obs_temp2), axis=[1])
             term2_2 += term2_2_new
 
@@ -179,10 +180,10 @@ class ActiveInferenceModel:
         # Use the averaged terms to calculate batch of G's
         # E [ log [ H(o|s,th,pi) ] - E [ H(o|s,pi) ]
         term2 = term2_1 - term2_2
-        G = -term0 + term1 + term2
+        G = -term0  # + term1 + term2
 
         # pred_state_1 is used in MCTS, it is assigned to child nodes as their state
-        return G, pred_state_1, pred_state_1_mean
+        return G, pred_states_1, pred_states_1_mean
 
     @tf.function
     def calculate_G_repeated(self, obs, actions, steps=1, calc_mean=False, average_G_over_N_samples=1):
@@ -211,12 +212,12 @@ class ActiveInferenceModel:
         sum_G = tf.zeros([obs.shape[0]], cfg.np_precision)
 
         # Predict state_t+1
-        s0_temp = state_mean if calc_mean else state
+        state_temp = state_mean if calc_mean else state
 
         for t in range(steps):
-            G, next_state, next_state_mean = self.calculate_G(s0_temp, actions, average_G_over_N_samples=average_G_over_N_samples)
+            G, next_state, next_state_mean = self.calculate_G(state_temp, actions, average_G_over_N_samples=average_G_over_N_samples)
             sum_G += G
-            s0_temp = next_state_mean if calc_mean else next_state
+            state_temp = next_state_mean if calc_mean else next_state
 
         return sum_G
 
@@ -246,7 +247,7 @@ class ActiveInferenceModel:
 
         return -term0 + term1 + term2
 
-    def predict_agent_action_train(self, obs):
+    def predict_agent_action_train(self, obs, deterministic=True):
         # Repeat observation for each possible action
         # This will result in one predicted observation for each possible action so the lowest G can be calculated then the right action selected
         obs_repeated = obs.repeat(cfg.action_dim, axis=0)
@@ -259,7 +260,10 @@ class ActiveInferenceModel:
         P_action, _ = utils.softmax_multi_with_log(-sum_G.numpy(), cfg.action_dim)  # Shape: (batch, action_dim), e.g. (1, 3)
 
         # Sample an action from the probabilty distribution of actions
-        action_index = np.random.choice(cfg.action_dim, p=P_action.squeeze(axis=0))
+        if deterministic:
+            action_index = np.argmax(P_action.squeeze(axis=0))
+        else:
+            action_index = np.random.choice(cfg.action_dim, p=P_action.squeeze(axis=0))
 
         return action_index, P_action
 
