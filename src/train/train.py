@@ -11,11 +11,11 @@ from pathlib import Path
 from datetime import datetime
 
 import src.utils as utils
+import src.train.train_utils as train_utils
 import src.train.config as cfg
 from src.train.config import gamma_rate, gamma_max, gamma_delay
 from src.train.metrics import TENSORBOARD
 from src.model.active_inference import ActiveInferenceModel
-from src.train.train_utils import ProgressLogger, init_epoch
 
 
 # ========= DEBUG SECTION =========
@@ -36,7 +36,7 @@ np.set_printoptions(threshold=1000)
 parser = argparse.ArgumentParser(description="Training script.")
 parser.add_argument("-r", "--render", action="store_true", help="Enables showing the gym environment during training.")
 parser.add_argument("-p", "--path", type=str, default="", help="Path to save training logs, checkpoints and the trained model.")
-parser.add_argument("-e", "--epochs", type=int, default=1000, help="Length of training.")
+parser.add_argument("-e", "--epochs", type=int, default=200, help="Length of training.")
 parser.add_argument("-b", "--batch", type=int, default=1, help="Select batch size.")
 args = parser.parse_args()
 
@@ -52,11 +52,13 @@ TENSORBOARD.create_writer(training_run_path)
 
 # Set up SlimeVolley Environment
 policy = slimevolleygym.BaselinePolicy()  # defaults to use RNN Baseline for player
+policy_trainer = slimevolleygym.BaselinePolicy()
+
 env = gym.make("SlimeVolley-v0")
 env.seed(np.random.randint(0, 10000))
 
 # Set up active inference instance
-logger = ProgressLogger(args.epochs)
+logger = train_utils.ProgressLogger(args.epochs)
 model = ActiveInferenceModel(training_run_path=training_run_path)
 
 
@@ -73,19 +75,23 @@ for epoch in range(0, args.epochs + 1):
         model.encoder_net.gamma.assign(model.encoder_net.gamma + gamma_rate)
 
     # Start new epoch (new game in SlimeVolley)
-    obs_0_agent, obs_0_opponent, round_, done, total_reward = init_epoch(env, logger)
+    obs_0_agent, obs_0_opponent, round_, done, total_reward = train_utils.init_epoch(env, logger)
 
     while not done:
         print(f"Round {round_} of epoch {epoch}\r", end="")
         round_ += 1
 
         # Get action of the agent
-        action_agent_index, P_action = model.predict_agent_action_train(obs_0_agent)
+        action_agent_index, P_action = model.predict_agent_action(obs_0_agent)
         action_agent_onehot = utils.action_to_onehot(action_agent_index)  # For training
         action_agent_multihot = utils.action_to_multi_hot(action_agent_index)  # For the environment
 
         # Get action of the opponent
-        action_opponent = policy.predict(obs_0_opponent)
+        action_opponent, _ = policy.predict(obs_0_opponent)
+
+        # Get action of another baseline policy, that the active inference agent can learn to mimic
+        _, P_action_trainer = policy_trainer.predict(obs_0_agent.astype(cfg.np_precision).squeeze())
+        P_action_trainer = train_utils.convert_env_P_action_to_active_inference_format(P_action_trainer)
 
         # Apply actions to the environment. Action format: multi-hot [forward, backward, jump]
         obs_1_agent, reward, done, info = env.step(action_agent_multihot, action_opponent)
@@ -93,7 +99,7 @@ for epoch in range(0, args.epochs + 1):
 
         # Train model
         step = epoch * args.epochs + round_
-        model.train(obs_0_agent, obs_1_agent, action_agent_onehot, P_action, step=step)
+        model.train(obs_0_agent, obs_1_agent, action_agent_onehot, P_action_trainer, step=step)
 
         # Update/format observations for next round
         obs_0_agent = obs_1_agent
@@ -101,7 +107,7 @@ for epoch in range(0, args.epochs + 1):
 
         if args.render:
             env.render()
-            sleep(0.01)
+            # sleep(0.01)
 
     if epoch != 0 and epoch % 25 == 0:
         model.save(training_run_path / "saved_models" / f"epoch_{epoch}")

@@ -46,6 +46,7 @@ class HabitualNetwork(tf.keras.Model):
             Observation encoded as a lower dimensional state by the encoder network
         P_action_internal: np.array
             Probability distribution of actions predicted by the agent's internal model (encoder + transition networks)
+            or any other P_action that the habitual network should train to replicate (e.g. slimevolley baseline policy)
         """
 
         # Probability distribution of actions predicted by the habitual network

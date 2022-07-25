@@ -48,9 +48,6 @@ action_selection_method = "mcts"
 # 1 means no change to normal softmax output, closer to 0 it gets harder
 softmax_temperature = 1
 
-# For each action, move this many pixels to the selected direction
-apply_same_action_N_times = 15
-
 args = parser.parse_args()
 
 # Remove trailing slash from network path if it's there
@@ -84,10 +81,10 @@ done = False
 
 
 while not done:
-    action_agent_index, _ = model.predict_agent_action_train(obs_agent)
+    action_agent_index, _ = model.predict_agent_action(obs_agent, use_mcts=True)
     action_agent_multihot = utils.action_to_multi_hot(action_agent_index)
 
-    action_opponent = policy.predict(obs_opponent)
+    action_opponent, _ = policy.predict(obs_opponent)
 
     obs_agent, reward, done, info = env.step(action_agent_multihot, action_opponent)
 
@@ -97,7 +94,7 @@ while not done:
     total_reward += reward
 
     env.render()
-    sleep(0.01)  # 0.01
+    sleep(0.02)  # 0.01
 
 env.close()
 print("cumulative score", total_reward)

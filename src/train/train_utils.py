@@ -49,3 +49,52 @@ def init_epoch(env, logger):
     logger.start_epoch()
 
     return obs_agent.astype(cfg.np_precision), obs_opponent, round, done, total_reward
+
+
+def norm_tanh_range(n):
+    """
+    Changes from range of tanh [-1, 1] to range of [0, 1]
+    """
+    return (n + 1) / 2
+
+
+def get_idle_chance(Q_action):
+    """
+    First it Inverts the probability distribution (chance that each action does not happen),
+    than calculates the product of them (chance that none of those are happening)
+    """
+    inv_Q_action = 1 - Q_action
+    return np.prod(inv_Q_action)
+
+
+def convert_env_P_action_to_active_inference_format(env_P_action):
+    """
+    Parameters
+    ----------
+    env_Q_action : np.array
+        action probability distributions of the baseline policy, extracted from slimevolley package. Since a tanh activation is applied, range is [-1, 1].
+
+    Converts probabilities from multihot-like format
+        [forward, backward, jump]
+    to onehot-like format
+        [idle, forward, jump, backward, forward + jump, backward + jump]
+    """
+    norm_env_P_action = norm_tanh_range(env_P_action.squeeze())
+
+    P_action = np.zeros(
+        (
+            1,
+            cfg.action_dim,
+        )
+    )
+    P_action[0][0] = get_idle_chance(norm_env_P_action)  # No action taken
+    P_action[0][1] = norm_env_P_action[0]  # Forward
+    P_action[0][2] = norm_env_P_action[2]  # Jump
+    P_action[0][3] = norm_env_P_action[1]  # Backward
+    P_action[0][4] = norm_env_P_action[0] + norm_env_P_action[2]  # Forward + Jump
+    P_action[0][5] = norm_env_P_action[1] + norm_env_P_action[2]  # Backward + Jump
+
+    # Re-normalize
+    P_action /= P_action.sum()
+
+    return P_action.astype(cfg.np_precision)

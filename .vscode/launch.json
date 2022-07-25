@@ -10,7 +10,7 @@
       "request": "launch",
       "program": "src/run/run.py",
       "console": "integratedTerminal",
-      "args": ["-n", "training_files/minus_x_agent/saved_models/epoch_250"],
+      "args": ["-n", "training_files/mimic-baseline/saved_models/epoch_325"],
       "justMyCode": true,
       "python": "/Users/simon/dev/quantum-dueling-slimes/.venv/bin/python"
     },

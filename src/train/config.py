@@ -22,7 +22,7 @@ action_dim = 6
 # b: This shows the average value of D_kl[pi] that will cause half sigmoid (i.e. d+a/2)
 # c: This moves the steepness of the sigmoid
 # d: This is the minimum omega (when sigmoid is zero)
-omega_params = {"a": 1.0, "b": 25.0, "c": 5.0, "d": 1.5}
+omega_params = {"a": 1.0, "b": 5.0, "c": 5.0, "d": 0.1}
 
 
 # Weight for state / observation when calculating loss for state encoder network. Seems to be unused.
@@ -40,9 +40,6 @@ calc_G_steps_ahead = 1
 
 # Defines how many samples should be averaged to calculate G
 average_G_over_N_samples = 1
-
-# Defines how many times should be the same action applied to the environment
-apply_same_action_N_times = 1
 
 # Set data type to be used for matrices
 np_precision = np.float32

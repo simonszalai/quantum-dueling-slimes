@@ -1,3 +1,4 @@
+import time
 import numpy as np
 import tensorflow as tf
 
@@ -147,6 +148,7 @@ class ActiveInferenceModel:
         # Calculate G 'average_G_over_N_samples' times
         for _ in range(average_G_over_N_samples):
             pred_states_1, pred_states_1_mean, pred_states_1_logvar = self.transition_net.transition_with_sample(states_0, actions)
+
             pred_obs_1 = self.encoder_net.decode(pred_states_1)
             _, _, encoded_pred_state_1_logvar = self.encoder_net.encode(pred_obs_1)
 
@@ -180,7 +182,7 @@ class ActiveInferenceModel:
         # Use the averaged terms to calculate batch of G's
         # E [ log [ H(o|s,th,pi) ] - E [ H(o|s,pi) ]
         term2 = term2_1 - term2_2
-        G = -term0  # + term1 + term2
+        G = -term0 + term1 + term2
 
         # pred_state_1 is used in MCTS, it is assigned to child nodes as their state
         return G, pred_states_1, pred_states_1_mean
@@ -247,7 +249,15 @@ class ActiveInferenceModel:
 
         return -term0 + term1 + term2
 
-    def predict_agent_action_train(self, obs, deterministic=True):
+    def predict_agent_action(self, obs, use_mcts=False):
+        if use_mcts:
+            action_index = self.mcts.active_inference_mcts(obs)
+            return action_index, None
+        else:
+            action_index, P_action = self.predict_agent_action_train(obs, deterministic=False)
+            return action_index, P_action
+
+    def predict_agent_action_train(self, obs, deterministic=False):
         # Repeat observation for each possible action
         # This will result in one predicted observation for each possible action so the lowest G can be calculated then the right action selected
         obs_repeated = obs.repeat(cfg.action_dim, axis=0)
@@ -260,20 +270,13 @@ class ActiveInferenceModel:
         P_action, _ = utils.softmax_multi_with_log(-sum_G.numpy(), cfg.action_dim)  # Shape: (batch, action_dim), e.g. (1, 3)
 
         # Sample an action from the probabilty distribution of actions
+        # Deterministic flag added, not in original code
         if deterministic:
             action_index = np.argmax(P_action.squeeze(axis=0))
         else:
             action_index = np.random.choice(cfg.action_dim, p=P_action.squeeze(axis=0))
 
         return action_index, P_action
-
-    def predict_agent_action_inf(self, obs):
-        action_agent = self.mcts.active_inference_mcts(obs)
-
-        # Convert action choices to multi-hot (for environment)
-        action_agent = utils.action_to_multi_hot(action_agent)
-
-        return action_agent
 
     def train(self, obs_0, obs_1, action_onehot, P_action, step):
         """

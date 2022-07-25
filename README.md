@@ -71,3 +71,12 @@ Action selected in Phase C - depth: 5 - repeats: 299
 All dense layers have 128 nodes
 Reward: `reward -= 100 * -x_agent`
 Trained to 400 epochs
+
+tanh to 0-1 bound: (1 + tanh(x)) / 2
+renorm: each / sum()
+
+Use baseline to train habitual net
+
+## Speedup
+
+Parallelize repeated caluclation of G
