@@ -123,8 +123,8 @@ class ActiveInferenceModel:
     @tf.function
     def habitual_network(self, obs):
         _, pred_state_mean, _ = self.encoder_net.encode(obs)
-        Q_action = self.habitual_net.predict_action(pred_state_mean)
-        return Q_action
+        P_action = self.habitual_net.predict_action(pred_state_mean)
+        return P_action
 
     @tf.function
     def calculate_G(self, states_0, actions, average_G_over_N_samples=1):
@@ -335,11 +335,11 @@ class ActiveInferenceModel:
                 state_d = start_states[d].reshape(1, -1)
 
                 # Predict action usually taken given current state using the habitual net
-                Q_action = self.habitual_net.predict_action(state_d)
-                Q_action = tf.squeeze(Q_action).numpy()
+                P_action = self.habitual_net.predict_action(state_d)
+                P_action = tf.squeeze(P_action).numpy()
 
                 # Choose an action from the predicted distribution and save it to the register as one-hot
-                depth_d_action = np.random.choice(cfg.action_dim, p=Q_action)
+                depth_d_action = np.random.choice(cfg.action_dim, p=P_action)
                 actions[d, depth_d_action] = 1.0
 
             except Exception as e:

@@ -57,20 +57,20 @@ class MCTS:
         # ============= Phase A: Habitual Network =============
         # Action will be selected in this phase if the habitual network is more confident in one action than the threshold
         # Predict probabilities for each action given the current state using the habitual network
-        Q_action = self.model.habitual_net.predict_action(state_0_mean).numpy()
+        P_action = self.model.habitual_net.predict_action(state_0_mean).numpy()
 
         # tprint(4)
 
         # Remove list nesting
-        root_node.Q_action = np.squeeze(Q_action)
+        root_node.P_action = np.squeeze(P_action)
 
         if self.use_habit:
-            habitual_threshold = calc_action_threshold(root_node.Q_action, axis=0)
+            habitual_threshold = calc_action_threshold(root_node.P_action, axis=0)
             if habitual_threshold > self.threshold:
                 if self.verbose:
-                    print("Action selected in Phase A |", "Q_action:", Q_action, "habitual_threshold:", habitual_threshold)
+                    print("Action selected in Phase A |", "P_action:", P_action, "habitual_threshold:", habitual_threshold)
 
-                choosen_action = np.random.choice(cfg.action_dim, p=root_node.Q_action)
+                choosen_action = np.random.choice(cfg.action_dim, p=root_node.P_action)
                 return choosen_action
         # ============= /Phase A =============
         # tprint(5)
@@ -103,8 +103,8 @@ class MCTS:
             start_state = path_of_nodes[-1].node_state[0]  # Same state is saved actions_dim times, so just take the first
 
             # Predict action probabilities of the current node using the habitual net
-            Q_action_of_node = self.model.habitual_net.predict_action(start_state.reshape(1, -1))
-            path_of_nodes[-1].Q_action = tf.squeeze(Q_action_of_node).numpy()
+            P_action_of_node = self.model.habitual_net.predict_action(start_state.reshape(1, -1))
+            path_of_nodes[-1].P_action = tf.squeeze(P_action_of_node).numpy()
             # tprint(9)
 
             # Get the mean of Gs of 'self.simulation_steps' actions executed based on the agent's internal model

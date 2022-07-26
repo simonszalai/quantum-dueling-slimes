@@ -58,20 +58,20 @@ def norm_tanh_range(n):
     return (n + 1) / 2
 
 
-def get_idle_chance(Q_action):
+def get_idle_chance(P_action):
     """
     First it Inverts the probability distribution (chance that each action does not happen),
     than calculates the product of them (chance that none of those are happening)
     """
-    inv_Q_action = 1 - Q_action
-    return np.prod(inv_Q_action)
+    inv_P_action = 1 - P_action
+    return np.prod(inv_P_action)
 
 
 def convert_env_P_action_to_active_inference_format(env_P_action):
     """
     Parameters
     ----------
-    env_Q_action : np.array
+    env_P_action : np.array
         action probability distributions of the baseline policy, extracted from slimevolley package. Since a tanh activation is applied, range is [-1, 1].
 
     Converts probabilities from multihot-like format

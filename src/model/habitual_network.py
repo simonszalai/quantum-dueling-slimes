@@ -30,9 +30,9 @@ class HabitualNetwork(tf.keras.Model):
         # Probability of each action selected given a state
         # Q denotes a probability distribution just like P, but a different letter is used to amplify that it is different from the other
         # probability distribution P which is calculated from Expected Free Energy
-        Q_action = tf.nn.softmax(logits_action)
+        P_action = tf.nn.softmax(logits_action)
 
-        return Q_action
+        return P_action
 
     @tf.function
     def compute_loss(self, state, P_action_internal):
