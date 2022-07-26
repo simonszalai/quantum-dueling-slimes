@@ -80,3 +80,11 @@ Use baseline to train habitual net
 ## Speedup
 
 Parallelize repeated caluclation of G
+
+### habitual uses
+
+1. mcts step simulate
+   first: node_state mean, predicted from observation by encoder
+   later steps: full state predicted by transition_net (in original code, can be changed by 'use_means')
+2. habitual training compute loss, full state from obs
+3. active_inference_mcts, from obs, encoded, uses mean (changed)

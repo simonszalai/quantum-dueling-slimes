@@ -31,7 +31,7 @@ class Node:
         self.exploration_counts_of_actions = np.zeros(cfg.action_dim)
 
         # Prior probability distribution for actions
-        self.Q_action = np.zeros(cfg.action_dim)
+        self.P_action = np.zeros(cfg.action_dim)
 
         # Create placeholders for child nodes for each action
         self.child_nodes = [None for _ in range(cfg.action_dim)]
@@ -61,7 +61,7 @@ class Node:
 
         # Boost probability of actions that would be visited by habit but were not visited often
         if self.using_prior_for_exploration:
-            bonus_of_less_explored_actions *= self.Q_action
+            bonus_of_less_explored_actions *= self.P_action
 
         return norm_free_energy_of_actions + bonus_of_less_explored_actions
 

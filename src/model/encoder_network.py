@@ -23,11 +23,11 @@ class EncoderNetwork(tf.keras.Model):
         self.encoder_model = tf.keras.Sequential(
             [
                 tf.keras.layers.InputLayer(input_shape=(cfg.state_dim)),
-                tf.keras.layers.Dense(128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(512, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(512, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
-                tf.keras.layers.Dense(128, activation=tf.nn.relu, kernel_initializer="he_uniform"),
+                tf.keras.layers.Dense(512, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dropout(0.5),
                 tf.keras.layers.Dense(cfg.state_dim + cfg.state_dim),
             ]
