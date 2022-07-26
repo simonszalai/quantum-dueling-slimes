@@ -91,7 +91,7 @@ for epoch in range(0, args.epochs + 1):
 
         # Get action of another baseline policy, that the active inference agent can learn to mimic
         _, P_action_trainer = policy_trainer.predict(obs_0_agent.astype(cfg.np_precision).squeeze())
-        P_action_trainer = train_utils.convert_env_P_action_to_active_inference_format(P_action_trainer)
+        P_action_trainer = utils.convert_env_P_action_to_active_inference_format(P_action_trainer)
 
         # Apply actions to the environment. Action format: multi-hot [forward, backward, jump]
         obs_1_agent, reward, done, info = env.step(action_agent_multihot, action_opponent)

@@ -94,7 +94,7 @@ while not done:
     total_reward += reward
 
     env.render()
-    sleep(0.02)  # 0.01
+    sleep(0.04)  # 0.01
 
 env.close()
 print("cumulative score", total_reward)

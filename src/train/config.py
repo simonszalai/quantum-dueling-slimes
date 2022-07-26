@@ -39,7 +39,7 @@ gamma_delay = 30
 calc_G_steps_ahead = 1
 
 # Defines how many samples should be averaged to calculate G
-average_G_over_N_samples = 1
+average_G_over_N_samples = 3
 
 # Set data type to be used for matrices
 np_precision = np.float32
@@ -47,3 +47,6 @@ tf_precision = tf.float32
 
 # Learning rates for the 3 neural networks
 learning_rates = {"habitual": 1e-04, "transition": 1e-04, "encoder": 0.001}
+
+# Replace habitual network with baseline RNN policy
+replace_habit_with_baseline = True

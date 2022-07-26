@@ -1,5 +1,7 @@
+import slimevolleygym
 import tensorflow as tf
 
+import src.utils as utils
 import src.train.config as cfg
 from src.utils import stable_tf_log
 
@@ -10,8 +12,12 @@ class HabitualNetwork(tf.keras.Model):
     taken given a state.
     """
 
-    def __init__(self):
+    def __init__(self, encoder_net):
         super(HabitualNetwork, self).__init__()
+        self.baseline_policy = slimevolleygym.BaselinePolicy()
+
+        # Needed here to decode state to obs when replacing habitual net with slime baseline policy
+        self.encoder_net = encoder_net
 
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=cfg.learning_rates.get("habitual"))
         self.model = tf.keras.Sequential(
@@ -24,15 +30,31 @@ class HabitualNetwork(tf.keras.Model):
         )  # No activation
 
     def predict_action(self, state):
+        if cfg.replace_habit_with_baseline:
+            pred_obs = self.encoder_net.decode(state)
+            _, P_action_multihot = self.baseline_policy.predict(tf.squeeze(pred_obs))
+            P_action = utils.convert_env_P_action_to_active_inference_format(P_action_multihot)
+
+        else:
+            P_action = self.predict_action_from_state(state)
+
+        return P_action
+
+    def predict_action_from_state(self, state):
         # Raw outputs of the neural network
         logits_action = self.model(state)
 
         # Probability of each action selected given a state
         # Q denotes a probability distribution just like P, but a different letter is used to amplify that it is different from the other
         # probability distribution P which is calculated from Expected Free Energy
-        Q_action = tf.nn.softmax(logits_action)
+        P_action = tf.nn.softmax(logits_action)
 
-        return Q_action
+        return P_action
+
+    def predict_action_from_obs(self, obs):
+        _, P_action_multihot = self.baseline_policy.predict(tf.squeeze(obs))
+        P_action = utils.convert_env_P_action_to_active_inference_format(P_action_multihot)
+        return P_action
 
     @tf.function
     def compute_loss(self, state, P_action_internal):
