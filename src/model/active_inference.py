@@ -1,10 +1,11 @@
-import time
+import math
 import numpy as np
 import tensorflow as tf
 
 import src.utils as utils
 import src.train.config as cfg
 from src.model.habitual_network import HabitualNetwork
+from src.model.habitual_network_quantum import HabitualNetworkQuantum
 from src.model.transition_network import TransitionNetwork
 from src.model.encoder_network import EncoderNetwork
 from src.model.mcts import MCTS
@@ -13,12 +14,18 @@ from src.utils import stable_tf_log
 
 
 class ActiveInferenceModel:
-    def __init__(self, training_run_path=None):
+    def __init__(self, model_type="classical", training_run_path=None):
         self.omega = tf.Variable(1.0, trainable=False, name="omega")
 
         tf.keras.backend.set_floatx(f"float{np.finfo(cfg.np_precision).bits}")
 
-        self.habitual_net = HabitualNetwork()
+        if model_type == "classical":
+            self.habitual_net = HabitualNetwork()
+        elif model_type == "quantum":
+            self.habitual_net = HabitualNetworkQuantum()
+        else:
+            raise Exception(f"Passed model_type '{model_type}' is not supported.")
+
         self.transition_net = TransitionNetwork()
         self.encoder_net = EncoderNetwork()
         self.mcts = MCTS(model=self)
@@ -74,48 +81,20 @@ class ActiveInferenceModel:
         results = tf.TensorArray(cfg.tf_precision, size=actions_count)
         for i in tf.range(actions_count):
             obs = obs_for_actions[i]
-            x_agent = tf.gather(obs, 0)
-            y_agent = tf.gather(obs, 1)
+            # x_agent = tf.gather(obs, 0)
+            # y_agent = tf.gather(obs, 1)
             x_ball = tf.gather(obs, 4)
             y_ball = tf.gather(obs, 5)
-            Vx_ball = tf.gather(obs, 6)
+            # Vx_ball = tf.gather(obs, 6)
 
             # We encode reward as expected outcome which is inversely proportional to the probability of the target observation given the ideal input policy
+            # Modulates reward on the Y axis (the smaller it is, the reward is more concentrated on the bottom) range: [0,1]
+            a = 0.5
+            # Modulates reward on the X axis (the bigger it is, the more concentrated the reward is in the left and right corners) range: [0,1]
+            b = 0.4
+            free_energy = 10 * tf.math.exp(-y_ball / a) * tf.math.tanh(x_ball / b)
 
-            # Here higher reward == incentive, lower reward == penalty
-            penalty = 0.0
-
-            # penalty -= 1000 * -x_agent
-
-            # # 1. If the ball is moving towards the agent, agent should get closer to the ball
-            # # Vx_ball > 0: moving towards the agent's half (to the right)
-            agent_ball_dist = 0.0
-            if Vx_ball > 0:
-                agent_ball_dist = get_agent_ball_dist(x_ball, y_ball, x_agent, y_agent)
-            # Penalize distance between agent and ball
-            penalty += 1000 * agent_ball_dist
-
-            # # 2. Reward for the ball moving towards the opponents half
-            # reward += Vx_ball
-
-            # # 3. On the agent's side, reward if the ball is higher
-            # if x_ball > 0:
-            #     reward += y_ball
-
-            # # 4. On the opponent's side, penalize if the ball is higher
-            # if x_ball < 0:
-            #     reward -= y_ball
-
-            # # 5. On the agent's side, big penalty if the ball touches the ground
-            # if x_ball > 0 and y_ball <= 0.25:
-            #     reward -= 1000
-
-            # # 6. On the opponent's side, big reward if the ball touches the ground
-            # if x_ball < 0 and y_ball <= 0.25:
-            #     reward += 1000
-
-            # Swap the sign of the reward => smaller reward is better
-            results = results.write(i, penalty)
+            results = results.write(i, free_energy)
 
         stacked_results = results.stack()
         return stacked_results

@@ -22,7 +22,7 @@ action_dim = 6
 # b: This shows the average value of D_kl[pi] that will cause half sigmoid (i.e. d+a/2)
 # c: This moves the steepness of the sigmoid
 # d: This is the minimum omega (when sigmoid is zero)
-omega_params = {"a": 1.0, "b": 5.0, "c": 5.0, "d": 0.1}
+omega_params = {"a": 1.0, "b": 5.0, "c": 15.0, "d": 0.1}
 
 
 # Weight for state / observation when calculating loss for state encoder network. Seems to be unused.
@@ -36,10 +36,10 @@ gamma_max = 0.8
 gamma_delay = 30
 
 # Defines how many steps in the future G should be calculated
-calc_G_steps_ahead = 1
+calc_G_steps_ahead = 2
 
 # Defines how many samples should be averaged to calculate G
-average_G_over_N_samples = 1
+average_G_over_N_samples = 2
 
 # Set data type to be used for matrices
 np_precision = np.float32

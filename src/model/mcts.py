@@ -10,7 +10,7 @@ node_id = 0
 
 
 class MCTS:
-    def __init__(self, model, C=0.1, threshold=0.25, repeats=100, simulation_repeats=1, simulation_depth=2, use_habit=True):
+    def __init__(self, model, C=0.1, threshold=0.5, repeats=150, simulation_repeats=1, simulation_depth=2, use_habit=False):
         self.model = model
         self.C = C  # Higher value increases probability of choosing less explored actions
         self.threshold = threshold
@@ -22,18 +22,6 @@ class MCTS:
         self.using_prior_for_exploration = False
 
     def active_inference_mcts(self, obs):
-        start_time = time.time()
-
-        def get_elapsed_time():
-            now = time.time()
-            elapsed_s = now - start_time
-            return f"{round(elapsed_s * 1000, 1)} ms"
-
-        def tprint(text):
-            print(text, get_elapsed_time())
-
-        # tprint(1)
-
         states_explored_count = 0
 
         # For debugging
@@ -47,19 +35,13 @@ class MCTS:
         # Predict current state from observation
         _, state_0_mean, _ = self.model.encoder_net.encode(obs)
 
-        # tprint(2)
-
         # Important to use the mean here as we repeat it cfg.action_dim times
         root_node = Node(state=state_0_mean[0], model=self.model, C=self.C, using_prior_for_exploration=self.using_prior_for_exploration)
-
-        # tprint(3)
 
         # ============= Phase A: Habitual Network =============
         # Action will be selected in this phase if the habitual network is more confident in one action than the threshold
         # Predict probabilities for each action given the current state using the habitual network
         P_action = self.model.habitual_net.predict_action(state_0_mean).numpy()
-
-        # tprint(4)
 
         # Remove list nesting
         root_node.P_action = np.squeeze(P_action)
@@ -73,11 +55,9 @@ class MCTS:
                 choosen_action = np.random.choice(cfg.action_dim, p=root_node.P_action)
                 return choosen_action
         # ============= /Phase A =============
-        # tprint(5)
 
         # Initialize child nodes for each possible action
         root_node.expand()
-        # tprint(6)
 
         # ============= Phase B: Exploration Count =============
         path_of_nodes = []
@@ -94,30 +74,25 @@ class MCTS:
 
             # Create path by selecting actions based on the average G of nodes
             path_of_nodes, path_of_actions = root_node.traverse_path_to_leaf(deterministic=True)
-            # tprint(7)
 
             # Expand the leaf node at the end of the path (add child nodes for each action)
             path_of_nodes[-1].expand()
-            # tprint(8)
 
             start_state = path_of_nodes[-1].node_state[0]  # Same state is saved actions_dim times, so just take the first
 
             # Predict action probabilities of the current node using the habitual net
             P_action_of_node = self.model.habitual_net.predict_action(start_state.reshape(1, -1))
             path_of_nodes[-1].P_action = tf.squeeze(P_action_of_node).numpy()
-            # tprint(9)
 
             # Get the mean of Gs of 'self.simulation_steps' actions executed based on the agent's internal model
             simulation_G_mean, states_explored_in_sim = self.get_G_of_internal_model(start_state)
             states_explored_count += states_explored_in_sim
-            # tprint(10)
 
             # Get full path of nodes in the tree (including the root node)
             full_path_of_nodes = [root_node, *path_of_nodes[:-1]]
 
             # Traverse back the tree and subtract the mean G from 'total_free_energy' of each node
             path_of_nodes[-1].backpropagate(full_path_of_nodes, simulation_G_mean)
-            # tprint(11)
 
             # Append paths to debug registers
             all_paths.append(path_of_actions)

@@ -36,8 +36,8 @@ np.set_printoptions(threshold=1000)
 parser = argparse.ArgumentParser(description="Training script.")
 parser.add_argument("-r", "--render", action="store_true", help="Enables showing the gym environment during training.")
 parser.add_argument("-p", "--path", type=str, default="", help="Path to save training logs, checkpoints and the trained model.")
-parser.add_argument("-e", "--epochs", type=int, default=200, help="Length of training.")
-parser.add_argument("-b", "--batch", type=int, default=1, help="Select batch size.")
+parser.add_argument("-t", "--type", type=str, default="classical", help="Model type. 'classical' or 'quantum'.")
+parser.add_argument("-e", "--epochs", type=int, default=1000, help="Length of training.")
 args = parser.parse_args()
 
 # Set folder names for saving training logs, then create them if they don't exist
@@ -55,11 +55,12 @@ policy = slimevolleygym.BaselinePolicy()  # defaults to use RNN Baseline for pla
 policy_trainer = slimevolleygym.BaselinePolicy()
 
 env = gym.make("SlimeVolley-v0")
-env.seed(np.random.randint(0, 10000))
+# env.seed(np.random.randint(0, 10000))
+env.seed(42)
 
 # Set up active inference instance
 logger = train_utils.ProgressLogger(args.epochs)
-model = ActiveInferenceModel(training_run_path=training_run_path)
+model = ActiveInferenceModel(training_run_path=training_run_path, model_type=args.type)
 
 
 print("=================================")
@@ -89,7 +90,7 @@ for epoch in range(0, args.epochs + 1):
         # Get action of the opponent
         action_opponent, _ = policy.predict(obs_0_opponent)
 
-        # Get action of another baseline policy, that the active inference agent can learn to mimic
+        # Get action of another baseline policy, that the habitual network can learn to mimic
         _, P_action_trainer = policy_trainer.predict(obs_0_agent.astype(cfg.np_precision).squeeze())
         P_action_trainer = train_utils.convert_env_P_action_to_active_inference_format(P_action_trainer)
 

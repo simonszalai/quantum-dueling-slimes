@@ -4,14 +4,14 @@ import src.train.config as cfg
 from src.utils import stable_tf_log
 
 
-class HabitualNetwork(tf.keras.Model):
+class HabitualNetworkQuantum(tf.keras.Model):
     """
     Habitual network, used to reduce computational burden for states that are often visited. It predicts normally which action is
     taken given a state.
     """
 
     def __init__(self):
-        super(HabitualNetwork, self).__init__()
+        super(HabitualNetworkQuantum, self).__init__()
 
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=cfg.learning_rates.get("habitual"))
         self.model = tf.keras.Sequential(
