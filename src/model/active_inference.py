@@ -1,34 +1,25 @@
-import math
 import numpy as np
 import tensorflow as tf
 
 import src.utils as utils
 import src.train.config as cfg
-from src.model.habitual_network import HabitualNetwork
 from src.model.habitual_network_quantum import HabitualNetworkQuantum
 from src.model.transition_network import TransitionNetwork
 from src.model.encoder_network import EncoderNetwork
 from src.model.mcts import MCTS
 from src.train.metrics import TENSORBOARD
-from src.utils import stable_tf_log
 
 
 class ActiveInferenceModel:
-    def __init__(self, model_type="classical", training_run_path=None):
+    def __init__(self, add_quantum_noise=False, training_run_path=None, use_habit=False, using_prior_for_exploration=True):
         self.omega = tf.Variable(1.0, trainable=False, name="omega")
 
         tf.keras.backend.set_floatx(f"float{np.finfo(cfg.np_precision).bits}")
 
-        if model_type == "classical":
-            self.habitual_net = HabitualNetwork()
-        elif model_type == "quantum":
-            self.habitual_net = HabitualNetworkQuantum()
-        else:
-            raise Exception(f"Passed model_type '{model_type}' is not supported.")
-
+        self.habitual_net = HabitualNetworkQuantum(add_quantum_noise=add_quantum_noise)
         self.transition_net = TransitionNetwork()
         self.encoder_net = EncoderNetwork()
-        self.mcts = MCTS(model=self)
+        self.mcts = MCTS(model=self, use_habit=use_habit, using_prior_for_exploration=using_prior_for_exploration)
 
         self.checkpoint = tf.train.Checkpoint(
             habitual_net=self.habitual_net,
@@ -231,10 +222,14 @@ class ActiveInferenceModel:
     def predict_agent_action(self, obs, use_mcts=False):
         if use_mcts:
             action_index = self.mcts.active_inference_mcts(obs)
-            return action_index, None
+            action_multihot = utils.action_to_multi_hot(action_index)
+            action_agent_onehot = utils.action_to_onehot(action_index)
+            return action_multihot, action_agent_onehot
         else:
             action_index, P_action = self.predict_agent_action_train(obs, deterministic=False)
-            return action_index, P_action
+            action_multihot = utils.action_to_multi_hot(action_index)
+            action_agent_onehot = utils.action_to_onehot(action_index)
+            return action_multihot, action_agent_onehot
 
     def predict_agent_action_train(self, obs, deterministic=False):
         # Repeat observation for each possible action

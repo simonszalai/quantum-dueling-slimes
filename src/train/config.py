@@ -16,6 +16,9 @@ state_dim = 12
 #   5: backward + jump
 action_dim = 6
 
+# Dimension of the quantum noise added to the input of the habitual network
+noise_dim = 8
+
 # Parameters used to compute precision factor Ω.
 # In cognitive terms, it can be taught of as top-down attention. Effect is to incentivize disentanglement of latent state.
 # a: The sum a+d show the maximum value of omega

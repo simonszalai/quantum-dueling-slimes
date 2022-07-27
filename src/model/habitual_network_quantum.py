@@ -1,3 +1,5 @@
+import os
+import json
 import tensorflow as tf
 
 import src.train.config as cfg
@@ -10,22 +12,70 @@ class HabitualNetworkQuantum(tf.keras.Model):
     taken given a state.
     """
 
-    def __init__(self):
+    def __init__(self, add_quantum_noise):
         super(HabitualNetworkQuantum, self).__init__()
+        self.add_quantum_noise = add_quantum_noise
+
+        self.noise_path = "quantum_noise"
+        self.noise_storage = {}
+        self.file_cursor = 0
+        self.row_cursor = 0
 
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=cfg.learning_rates.get("habitual"))
         self.model = tf.keras.Sequential(
             [
-                tf.keras.layers.InputLayer(input_shape=(cfg.state_dim,)),
+                tf.keras.layers.InputLayer(input_shape=((cfg.state_dim + cfg.noise_dim,))),
                 tf.keras.layers.Dense(units=512, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dense(units=512, activation=tf.nn.relu, kernel_initializer="he_uniform"),
                 tf.keras.layers.Dense(cfg.action_dim),
             ]
         )  # No activation
 
+        if self.add_quantum_noise:
+            self.read_noise_files()
+
+    def read_noise_files(self):
+        """
+        Loads pre-generated quantum noise from JSON files to memory.
+        """
+        noise_files = [f for f in os.listdir(self.noise_path) if os.path.isfile(os.path.join(self.noise_path, f))]
+        self.last_noise_file = max([int(noise_file.split(".")[0]) for noise_file in noise_files])
+        self.load_current_noise_file()
+
+    def load_current_noise_file(self):
+        with open(f"{self.noise_path}/{self.file_cursor}.json", "r") as f:
+            noise_content = json.load(f)
+            self.noise_storage[self.file_cursor] = noise_content
+
+    def get_quantum_noise(self):
+        # Get the loaded content of the current file
+        file_content = self.noise_storage[self.file_cursor]
+
+        # Check if the current row cursor points to a row that exists
+        if self.row_cursor > len(file_content) - 1:
+            # If not, move to the next file and reset row cursor
+            self.row_cursor = 0
+            self.file_cursor += 1
+            if self.file_cursor > self.last_noise_file:
+                raise Exception("Ran out of noise files, stopping.")
+
+            self.load_current_noise_file()
+
+        # Get noise and increment row cursor
+        self.row_cursor += 1
+        return self.noise_storage[self.file_cursor][self.row_cursor]
+
     def predict_action(self, state):
+        if self.add_quantum_noise:
+            noise = self.get_quantum_noise()
+        else:
+            noise = tf.zeros(cfg.noise_dim)
+
         # Raw outputs of the neural network
-        logits_action = self.model(state)
+        noise = tf.convert_to_tensor(noise)
+        noise = tf.cast(noise, cfg.tf_precision)
+        noise = tf.expand_dims(noise, axis=0)
+        logits_action = self.model(tf.concat([state, noise], axis=1))
 
         # Probability of each action selected given a state
         # Q denotes a probability distribution just like P, but a different letter is used to amplify that it is different from the other

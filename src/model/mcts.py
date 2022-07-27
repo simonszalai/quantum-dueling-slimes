@@ -10,7 +10,7 @@ node_id = 0
 
 
 class MCTS:
-    def __init__(self, model, C=0.1, threshold=0.5, repeats=150, simulation_repeats=1, simulation_depth=2, use_habit=False):
+    def __init__(self, model, C=0.1, threshold=0.5, repeats=150, simulation_repeats=1, simulation_depth=2, use_habit=False, using_prior_for_exploration=True):
         self.model = model
         self.C = C  # Higher value increases probability of choosing less explored actions
         self.threshold = threshold
@@ -18,8 +18,8 @@ class MCTS:
         self.simulation_repeats = simulation_repeats
         self.simulation_depth = simulation_depth
         self.use_habit = use_habit
+        self.using_prior_for_exploration = using_prior_for_exploration
         self.verbose = True
-        self.using_prior_for_exploration = False
 
     def active_inference_mcts(self, obs):
         states_explored_count = 0
@@ -98,6 +98,7 @@ class MCTS:
             all_paths.append(path_of_actions)
             all_paths_G.append(simulation_G_mean)
 
+        # ============= Phase C: Action Selection =============
         final_path = root_node.action_selection(deterministic=True)
         if self.verbose:
             self.print_action_selected(root_node, len(path_of_nodes), repeats=repeat, phase="C")

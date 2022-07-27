@@ -170,7 +170,8 @@ class Node:
 
             selected_child_node = selected_child_node.child_nodes[action_of_node]
 
-        # ============ Phase B - ???
+        # TODO: refactor code to reduce jitter
+        # ============ Phase B - remove subsequent actions that are canceling each other out
         # trimmed_path = []
         # i = 0
         # while i < len(path_of_actions) - 1:
