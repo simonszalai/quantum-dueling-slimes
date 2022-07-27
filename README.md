@@ -1,5 +1,7 @@
 # Quantum Dueling Slimes
 
+_by @pldallairedemers and @simonszalai_
+
 ## Instructions
 
 ### Initial Setup
