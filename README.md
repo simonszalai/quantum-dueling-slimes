@@ -17,7 +17,6 @@ pip install -e ./slimevolleygym  # Install 'slimevolleygym' in editable mode
 ### Training
 
 ```
-tensorboard --logdir training_files/logs  # Optional, can be opened in another shell or after training
 python src/train/train.py -p [TRAINING_RUN_NAME] -r [RENDER] -e [EPOCHS]
 ```
 
@@ -56,6 +55,12 @@ The commands below were the ones used to create the videos in the presentation. 
 
 ```
 python src/train/train.py -p baseline -e 300
+```
+
+Training logs:
+
+```
+tensorboard --logdir training_files/logs
 ```
 
 ### Inference

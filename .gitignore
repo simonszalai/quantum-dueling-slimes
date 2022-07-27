@@ -1,7 +1,5 @@
 # CUSTOM
 logs
-**/training_files
-**/run_files
 
 **/.DS_Store
 
